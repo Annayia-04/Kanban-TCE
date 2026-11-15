@@ -11,6 +11,11 @@ const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Applic
 const APP = process.argv[2] || 'http://127.0.0.1:4321/';
 const PORT = 9333;
 const OUT = path.join(os.tmpdir(), 'flowboard-ui');
+
+if (typeof WebSocket === 'undefined') {
+  console.error('Node 22 ou plus est requis (WebSocket global absent).');
+  process.exit(1);
+}
 fs.mkdirSync(OUT, { recursive: true });
 const profile = path.join(OUT, `profile-${Date.now()}`);
 
