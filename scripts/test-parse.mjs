@@ -58,7 +58,8 @@ const docx = makeZip({
   </w:body></w:document>`,
 });
 console.log('--- DOCX ---');
-console.log(extractTextFromFile(docx, 'test.docx'));
+const docxText = extractTextFromFile(docx, 'test.docx');
+console.log(docxText);
 
 /* ---------- Fabrique un PDF minimal non compresse ---------- */
 const pdfBody = `%PDF-1.4
@@ -74,7 +75,8 @@ trailer << /Root 1 0 R >>
 %%EOF`;
 
 console.log('\n--- PDF ---');
-console.log(extractTextFromFile(Buffer.from(pdfBody, 'latin1'), 'test.pdf'));
+const pdfText = extractTextFromFile(Buffer.from(pdfBody, 'latin1'), 'test.pdf');
+console.log(pdfText);
 
 /* ---------- PDF compresse (FlateDecode) ---------- */
 const compressed = zlib.deflateSync(
@@ -86,4 +88,24 @@ const pdf2 = Buffer.concat([
   Buffer.from('\nendstream\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF', 'latin1'),
 ]);
 console.log('\n--- PDF compresse ---');
-console.log(extractTextFromFile(pdf2, 'test2.pdf'));
+const pdf2Text = extractTextFromFile(pdf2, 'test2.pdf');
+console.log(pdf2Text);
+
+/* --- Assertions (utilisees par la CI) --- */
+const failures = [];
+const check = (label, ok) => {
+  if (!ok) failures.push(label);
+};
+
+check('.docx : paragraphes separes par des retours a la ligne', docxText.split('\n').length >= 3);
+check('.docx : contenu lu', docxText.includes('Thomas doit corriger le header mobile'));
+check('.pdf : texte lu', /Thomas doit corriger le header mobile/.test(pdfText));
+check('.pdf compresse : FlateDecode decode', /Karim doit creer les maquettes en v1/.test(pdf2Text));
+
+if (failures.length) {
+  console.error(`\n${failures.length} échec(s) :`);
+  for (const f of failures) console.error(' -', f);
+  process.exitCode = 1;
+} else {
+  console.log('\nOK — lecture .docx et .pdf conforme.');
+}

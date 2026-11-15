@@ -1,0 +1,29 @@
+# Flowboard en production.
+# L'image est publiee sur GHCR par .github/workflows/docker.yml.
+#
+#   docker compose pull && docker compose up -d
+#
+# Le port n'est expose que sur la boucle locale : c'est le proxy d'authentification
+# (oauth2-proxy, nginx, Caddy, Cloudflare Tunnel...) qui doit joindre l'application.
+
+services:
+  flowboard:
+    image: ghcr.io/annayia-04/kanban-tce:main
+    container_name: flowboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4321:4321"
+    volumes:
+      - flowboard-data:/data
+    environment:
+      KANBAN_DATA_DIR: /data
+      # SSO : mets KANBAN_AUTH_MODE=proxy dans un fichier .env en production.
+      KANBAN_AUTH_MODE: ${KANBAN_AUTH_MODE:-none}
+      KANBAN_AUTH_HEADER: ${KANBAN_AUTH_HEADER:-x-auth-request-email}
+      KANBAN_AUTH_DOMAINS: ${KANBAN_AUTH_DOMAINS:-}
+      # Optionnel : extraction par IA
+      KANBAN_LLM_API_KEY: ${KANBAN_LLM_API_KEY:-}
+      KANBAN_LLM_MODEL: ${KANBAN_LLM_MODEL:-}
+
+volumes:
+  flowboard-data:

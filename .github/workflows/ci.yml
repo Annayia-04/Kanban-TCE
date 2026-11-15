@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Moteur & formats (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Tests unitaires (extraction, formats, .docx/.pdf)
+        run: npm test
+
+  ui:
+    name: Parcours UI (Chrome headless)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Localiser Chrome
+        run: |
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          if [ -z "$CHROME" ]; then
+            echo "Chrome introuvable sur le runner" >&2
+            exit 1
+          fi
+          echo "CHROME_PATH=$CHROME" >> "$GITHUB_ENV"
+          "$CHROME" --version
+
+      - name: Démarrer le serveur
+        env:
+          KANBAN_DATA_DIR: ${{ runner.temp }}/flowboard-data
+          PORT: 4321
+        run: |
+          mkdir -p "$KANBAN_DATA_DIR"
+          node server.js > server.log 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:4321/healthz && exit 0
+            sleep 1
+          done
+          echo "Le serveur n'a pas démarré" >&2
+          cat server.log
+          exit 1
+
+      - name: Test du parcours complet
+        run: npm run test:ui
+
+      - name: Journal serveur
+        if: always()
+        run: cat server.log

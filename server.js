@@ -14,6 +14,7 @@ import {
   replaceDb,
   uid,
   ensureShape,
+  DATA_DIR,
   STATUSES,
   PRIORITIES,
 } from './lib/store.js';
@@ -511,7 +512,7 @@ server.listen(PORT, HOST, () => {
   console.log('  Flowboard — Kanban d\u2019équipe');
   console.log(`  http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
   console.log('');
-  console.log(`  Données : ${path.join(ROOT, 'data', 'db.json')}`);
+  console.log(`  Données : ${path.join(DATA_DIR, 'db.json')}`);
   console.log(`  Moteur  : ${llmInfo().enabled ? `IA (${llmInfo().model})` : 'extraction locale (heuristique)'}`);
   console.log(
     `  Accès   : ${AUTH_MODE === 'proxy' ? `SSO via en-tête ${AUTH_HEADER}${AUTH_DOMAINS.length ? ` (domaines : ${AUTH_DOMAINS.join(', ')})` : ''}` : 'libre (aucune authentification)'}`

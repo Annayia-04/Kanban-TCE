@@ -1,0 +1,11 @@
+.git
+.gitignore
+.gitattributes
+.github
+node_modules
+data
+exemples
+scripts
+*.log
+README.md
+compose.yaml

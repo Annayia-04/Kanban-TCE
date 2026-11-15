@@ -40,6 +40,8 @@ const chrome = spawn(
     '--window-size=1440,950',
     `--remote-debugging-port=${PORT}`,
     `--user-data-dir=${profile}`,
+    // Sur les runners CI, le sandbox de Chrome n'est pas disponible.
+    ...(process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
     'about:blank',
   ],
   { stdio: 'ignore' }
@@ -150,6 +152,7 @@ try {
   await shot('05-review.png');
   const cands = await evaluate(`document.querySelectorAll('.candidate').length`);
   console.log('  candidats affichés:', cands);
+  if (!cands) problems.push('Aucun candidat affiché après analyse');
 
   console.log('diagnostic');
   await evaluate(`document.querySelector('[data-act="diagnose"]').click()`);
@@ -158,6 +161,7 @@ try {
   const diagRows = await evaluate(`document.querySelectorAll('.diag-row').length`);
   const diagKept = await evaluate(`document.querySelectorAll('.diag-row.kept').length`);
   console.log('  lignes analysées:', diagRows, '· retenues:', diagKept);
+  if (!diagRows) problems.push('Diagnostic vide');
   await evaluate(`document.querySelector('#modal [data-act="modal-close"]').click()`);
   await sleep(400);
 
@@ -180,6 +184,7 @@ try {
   if (problems.length) {
     console.log('\nPROBLEMES JS :');
     for (const p of [...new Set(problems)]) console.log(' -', p);
+    process.exitCode = 1;
   } else {
     console.log('\nAucune erreur JS.');
   }

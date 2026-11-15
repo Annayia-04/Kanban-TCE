@@ -1,4 +1,4 @@
-import { extractFromText, findParticipants } from '../lib/extract.js';
+import { extractFromText, findParticipants, norm } from '../lib/extract.js';
 import { makeSeed } from '../lib/seed.js';
 
 const seed = makeSeed();
@@ -113,13 +113,90 @@ US-2 : En tant que client, je veux suivre ma commande afin de savoir quand elle 
 `,
 };
 
+/* ------------------------------------------------------------------ */
+/* Attentes (CI)                                                       */
+/* ------------------------------------------------------------------ */
+
+const EXPECT = {
+  'User stories explicites': 3,
+  'Tableau markdown': 4,
+  'Prose sans puces': 4,
+  'Cases à cocher': 3,
+  'Action / Responsable sur 2 lignes': 2,
+  Anglais: 3,
+  'Décisions seules (piège)': 0,
+  'Liste de noms (piège)': 0,
+  'Puces avec noms entre parenthèses': 3,
+  'Verbes au futur / infinitif': 3,
+  'Indices sur puces (Qui / Quand)': 2,
+  'Tableau colle de Word (tabulations)': 3,
+  'US numerotees': 2,
+};
+
+// [cas, titre attendu (extrait), champs attendus]
+const CHECKS = [
+  ['Tableau markdown', "finaliser l'écran d'inscription", { assignee: 'Thomas Bernard', due: 'vendredi' }],
+  ['Tableau markdown', 'brancher stripe', { assignee: 'Sofia Rossi', due: '24/11' }],
+  ['Cases à cocher', "finaliser l'écran d'inscription", { assignee: 'Thomas Bernard' }],
+  ['Action / Responsable sur 2 lignes', 'corriger le header mobile', { assignee: 'Thomas Bernard' }],
+  ['Puces avec noms entre parenthèses', 'maquettes du dashboard', { assignee: 'Karim Haddad' }],
+  ['Verbes au futur / infinitif', 'documentation api', { assignee: 'Sofia Rossi', version: 'v2' }],
+  ['Indices sur puces (Qui / Quand)', 'refonte du tunnel', { assignee: 'Thomas Bernard', due: 'vendredi' }],
+  ['Indices sur puces (Qui / Quand)', 'migration de la base', { assignee: 'Sofia Rossi', version: 'v2' }],
+  ['Tableau colle de Word (tabulations)', "finaliser l'ecran d'inscription", { assignee: 'Thomas Bernard', due: 'vendredi' }],
+  ['US numerotees', 'créer un compte', {}],
+  ['Anglais', 'fix the mobile header', { assignee: 'Thomas Bernard' }],
+];
+
+const failures = [];
+
 for (const [name, text] of Object.entries(cases)) {
   const c = extractFromText(text, opts);
   console.log(`\n=== ${name} → ${c.length} candidat(s) ===`);
   for (const x of c) {
     console.log(`  ${x.confidence.toFixed(2)} | ${x.title} | ${x.assigneeNames.join(',') || '-'} | ${x.versionName || '-'} | ${x.due || '-'}`);
   }
+  const expected = EXPECT[name];
+  if (expected !== undefined && c.length !== expected) {
+    failures.push(`${name} : ${c.length} candidat(s), ${expected} attendu(s)`);
+  }
+}
+
+const byCase = {};
+for (const [name, text] of Object.entries(cases)) byCase[name] = extractFromText(text, opts);
+
+for (const check of CHECKS) {
+  const [name, title, fields] = check;
+  const list = byCase[name] || [];
+  const found = list.find((x) => norm(x.title).includes(norm(title)));
+  if (!found) {
+    failures.push(`${name} : « ${title} » introuvable`);
+    continue;
+  }
+  for (const [key, value] of Object.entries(fields)) {
+    const actual =
+      key === 'assignee'
+        ? (found.assigneeNames || []).join(',')
+        : key === 'version'
+          ? found.versionName || ''
+          : key === 'due'
+            ? found.due || ''
+            : '';
+    if (!norm(actual).includes(norm(value))) {
+      failures.push(`${name} : « ${found.title} » → ${key} = ${actual || '(vide)'}, attendu ${value}`);
+    }
+  }
 }
 
 console.log('\n=== Participants ===');
-console.log(findParticipants(cases['Prose sans puces'], seed.members));
+const participants = findParticipants(cases['Prose sans puces'], seed.members).map((m) => m.name);
+console.log(participants);
+if (!participants.includes('Thomas Bernard')) failures.push('Participants : Thomas absent');
+
+if (failures.length) {
+  console.error(`\n${failures.length} échec(s) :`);
+  for (const f of failures) console.error(' -', f);
+  process.exitCode = 1;
+} else {
+  console.log('\nOK — tous les formats sont extraits comme attendu.');
+}

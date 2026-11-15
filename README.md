@@ -173,20 +173,73 @@ local, à ne pas utiliser en production.
 
 ---
 
+## CI / CD
+
+### Intégration continue (`.github/workflows/ci.yml`)
+
+À chaque push sur `main`/`dev` et à chaque pull request :
+
+| Job | Contenu |
+|---|---|
+| **Moteur & formats** | `npm test` sur Node 18, 20 et 22 : extraction (13 formats de CR), lecture `.docx`/`.pdf`, assertions sur les résultats |
+| **Parcours UI** | démarre le serveur, puis Chrome headless rejoue le parcours complet (tableau, drawer, backlog, analyse, diagnostic, thème sombre, mobile) et échoue à la moindre erreur JS |
+
+### Livraison continue (`.github/workflows/docker.yml`)
+
+À chaque push, une image Docker multi-arch (`linux/amd64`, `linux/arm64`) est construite et publiée sur GitHub Container Registry :
+
+```
+ghcr.io/annayia-04/kanban-tce:main    # dernière version de main
+ghcr.io/annayia-04/kanban-tce:dev     # dernière version de dev
+ghcr.io/annayia-04/kanban-tce:sha-…   # commit précis
+ghcr.io/annayia-04/kanban-tce:1.2.3   # tag git v1.2.3
+```
+
+Les pull requests construisent l'image sans la publier (validation du `Dockerfile`).
+
+### Déployer l'image
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+`compose.yaml` monte un volume `flowboard-data` sur `/data` et n'expose le port que sur
+`127.0.0.1:4321` — le proxy d'authentification reste devant (voir la section SSO).
+
+### Déploiement automatique (optionnel)
+
+Le job `deploy` du workflow Docker ne s'active que si la variable de dépôt `DEPLOY_HOST` existe.
+Il se connecte en SSH et exécute `docker compose pull && docker compose up -d` sur le serveur.
+
+| Type | Nom | Rôle |
+|---|---|---|
+| Variable | `DEPLOY_HOST` | Hôte SSH (active le job) |
+| Variable | `DEPLOY_USER` | Utilisateur SSH (défaut `deploy`) |
+| Variable | `DEPLOY_PATH` | Dossier du `compose.yaml` (défaut `/opt/flowboard`) |
+| Secret | `DEPLOY_SSH_KEY` | Clé privée SSH autorisée sur le serveur |
+
+Sans ces réglages, le pipeline reste purement CI + publication d'image.
+
+---
+
 ## Structure
 
 ```
-server.js            Serveur HTTP + API REST (aucune dépendance)
-lib/store.js         Persistance JSON et normalisation des US
-lib/extract.js       Moteur d'extraction local (français)
-lib/llm.js           Couche IA optionnelle
-lib/office.js        Extraction de texte .docx / .odt / .pdf
-lib/zip.js           Lecteur ZIP minimal (pour .docx/.odt)
-lib/seed.js          Données de démonstration
-public/              Interface (HTML/CSS/JS vanilla, sans build)
-scripts/             Tests du moteur et de l'interface (Chrome headless)
-exemples/            Comptes rendus d'exemple
-data/db.json         Données (générées)
+server.js              Serveur HTTP + API REST (aucune dépendance)
+lib/store.js           Persistance JSON et normalisation des US
+lib/extract.js         Moteur d'extraction local (français / anglais)
+lib/llm.js             Couche IA optionnelle
+lib/office.js          Extraction de texte .docx / .odt / .pdf
+lib/zip.js             Lecteur ZIP minimal (pour .docx/.odt)
+lib/seed.js            Données de démonstration
+public/                Interface (HTML/CSS/JS vanilla, sans build)
+scripts/               Tests du moteur et de l'interface (Chrome headless)
+exemples/              Comptes rendus d'exemple
+data/db.json           Données (générées)
+Dockerfile             Image de production
+compose.yaml           Déploiement (volume + variables SSO)
+.github/workflows/     CI (tests) et CD (image GHCR)
 ```
 
 ### API
@@ -219,10 +272,11 @@ data/db.json         Données (générées)
 ## Tests
 
 ```bash
-node scripts/test-extract.js   # moteur d'extraction sur un CR type
-node scripts/test-parse.mjs    # lecture .docx et .pdf
-node scripts/ui-test.mjs       # parcours complet dans Chrome headless (captures)
+npm test           # moteur d'extraction (13 formats) + .docx/.pdf, avec assertions
+npm run test:ui    # parcours complet dans Chrome headless (serveur démarré à côté)
 ```
+
+Les tests sortent en code 1 au moindre échec : ils servent aussi de garde-fous en CI.
 
 ## Notes
 
