@@ -8,7 +8,8 @@
 
 services:
   flowboard:
-    image: ghcr.io/annayia-04/kanban-tce:main
+    # main par defaut ; mets FLOWBOARD_TAG=dev pour suivre la branche de dev.
+    image: ghcr.io/annayia-04/kanban-tce:${FLOWBOARD_TAG:-main}
     container_name: flowboard
     restart: unless-stopped
     ports:

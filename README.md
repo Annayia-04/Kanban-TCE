@@ -189,7 +189,7 @@ local, à ne pas utiliser en production.
 À chaque push, une image Docker multi-arch (`linux/amd64`, `linux/arm64`) est construite et publiée sur GitHub Container Registry :
 
 ```
-ghcr.io/annayia-04/kanban-tce:main    # dernière version de main
+ghcr.io/annayia-04/kanban-tce:main    # dernière version de main (+ tag latest)
 ghcr.io/annayia-04/kanban-tce:dev     # dernière version de dev
 ghcr.io/annayia-04/kanban-tce:sha-…   # commit précis
 ghcr.io/annayia-04/kanban-tce:1.2.3   # tag git v1.2.3
