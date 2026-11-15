@@ -1,5 +1,9 @@
 # Flowboard — Kanban d'équipe avec extraction de user stories
 
+[![CI](https://github.com/Annayia-04/Kanban-TCE/actions/workflows/ci.yml/badge.svg)](https://github.com/Annayia-04/Kanban-TCE/actions/workflows/ci.yml)
+[![Image Docker](https://github.com/Annayia-04/Kanban-TCE/actions/workflows/docker.yml/badge.svg)](https://github.com/Annayia-04/Kanban-TCE/actions/workflows/docker.yml)
+[![Release](https://github.com/Annayia-04/Kanban-TCE/actions/workflows/release.yml/badge.svg)](https://github.com/Annayia-04/Kanban-TCE/actions/workflows/release.yml)
+
 Un Kanban d'équipe **local** : tu déposes un compte rendu de réunion, l'outil en extrait les
 actions, les transforme en **user stories** et les **assigne aux personnes concernées**.
 Tu retrouves ensuite tout dans un **backlog** filtrable par **version (v1, v2…)** et par
@@ -189,13 +193,37 @@ local, à ne pas utiliser en production.
 À chaque push, une image Docker multi-arch (`linux/amd64`, `linux/arm64`) est construite et publiée sur GitHub Container Registry :
 
 ```
-ghcr.io/annayia-04/kanban-tce:main    # dernière version de main (+ tag latest)
+ghcr.io/annayia-04/kanban-tce:main    # dernière version de main
 ghcr.io/annayia-04/kanban-tce:dev     # dernière version de dev
 ghcr.io/annayia-04/kanban-tce:sha-…   # commit précis
-ghcr.io/annayia-04/kanban-tce:1.2.3   # tag git v1.2.3
+ghcr.io/annayia-04/kanban-tce:1.2.3   # release (v1.2.3)
+ghcr.io/annayia-04/kanban-tce:1.2     # dernière 1.2.x
+ghcr.io/annayia-04/kanban-tce:latest  # dernière release stable
 ```
 
 Les pull requests construisent l'image sans la publier (validation du `Dockerfile`).
+
+### Releases (`.github/workflows/release.yml`)
+
+Deux façons de publier une version :
+
+**1. Depuis GitHub** — onglet *Actions → Release → Run workflow* : choisir `patch`, `minor` ou
+`major`, la branche (`main` par défaut) et éventuellement *pré-release*. Le workflow :
+
+1. lance `npm test` (garde-fou) ;
+2. incrémente la version dans `package.json` et commit `chore(release): vX.Y.Z` ;
+3. crée le tag annoté `vX.Y.Z` et pousse commit + tag ;
+4. construit et publie l'image avec les tags `X.Y.Z`, `X.Y`, `sha-…`, `latest` et la branche ;
+5. publie la **release GitHub** avec les notes générées automatiquement.
+
+**2. Par tag git** — `git tag v1.2.3 && git push origin v1.2.3` : même image et même release, sans
+modifier `package.json`. Une version contenant un suffixe (`v1.3.0-rc.1`) est automatiquement
+marquée pré-release et ne met pas à jour `latest`.
+
+> Le commit de release est poussé avec le `GITHUB_TOKEN` : GitHub ne relance donc pas CI/Docker
+> sur ce push. C'est voulu — le workflow de release lance les tests lui-même et publie l'image.
+> Si la branche `main` est protégée, autorise le bot `github-actions[bot]` à pousser (ou lance le
+> workflow depuis une branche non protégée).
 
 ### Déployer l'image
 

@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  # Publication manuelle : le workflow incrémente la version, crée le tag,
+  # construit l'image et publie la release GitHub.
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Type de version
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      branch:
+        description: Branche à publier
+        type: string
+        default: main
+      prerelease:
+        description: Marquer comme pré-release
+        type: boolean
+        default: false
+  # Un tag poussé à la main (git tag v1.2.3 && git push origin v1.2.3)
+  # publie la release et l'image correspondantes.
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publier la version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tests
+        run: npm test
+
+      - name: Calculer la version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEW=$(node -e '
+              const v = require("./package.json").version.split(".").map(Number);
+              const bump = process.env.BUMP;
+              if (bump === "major") { v[0]++; v[1] = 0; v[2] = 0; }
+              else if (bump === "minor") { v[1]++; v[2] = 0; }
+              else { v[2]++; }
+              process.stdout.write(v.join("."));
+            ')
+            PRERELEASE="${{ inputs.prerelease }}"
+          else
+            NEW="${GITHUB_REF_NAME#v}"
+            case "$NEW" in
+              *-*) PRERELEASE=true ;;
+              *) PRERELEASE=false ;;
+            esac
+          fi
+          if ! printf '%s' "$NEW" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "Version invalide : $NEW" >&2
+            exit 1
+          fi
+          echo "next=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Version : v$NEW (pré-release : $PRERELEASE)"
+
+      - name: Mettre à jour package.json, commiter et taguer
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ steps.version.outputs.next }}
+          TAG: ${{ steps.version.outputs.tag }}
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          VERSION="$VERSION" node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+          '
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): v$VERSION"
+          git tag -a "$TAG" -m "v$VERSION"
+          git push origin "HEAD:$BRANCH"
+          git push origin "$TAG"
+
+      - name: Nom de l'image
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Connexion à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags et labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ steps.version.outputs.next }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ steps.version.outputs.next }}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ steps.version.outputs.prerelease != 'true' }}
+            type=raw,value=${{ inputs.branch || 'main' }},enable=${{ github.event_name == 'workflow_dispatch' }}
+          labels: |
+            org.opencontainers.image.title=Flowboard
+            org.opencontainers.image.version=${{ steps.version.outputs.next }}
+            org.opencontainers.image.description=Kanban d'équipe avec extraction de user stories
+
+      - name: Construire et publier l'image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Publier la release GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          ARGS=""
+          if [ "$PRERELEASE" = "true" ]; then ARGS="--prerelease"; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" $ARGS
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes $ARGS
+          fi
+          echo "Release : $(gh release view "$TAG" --json url -q .url)"
