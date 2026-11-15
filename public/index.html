@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flowboard — Kanban d’équipe</title>
+    <meta name="description" content="Kanban d'équipe : importez vos comptes rendus de réunion, l'outil en sort des user stories assignées." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" id="sidebar" aria-label="Navigation principale"></aside>
+      <div class="shell">
+        <header class="topbar" id="topbar"></header>
+        <main class="view" id="view"></main>
+      </div>
+    </div>
+
+    <div class="scrim" id="scrim" hidden></div>
+    <aside class="drawer" id="drawer" hidden aria-label="Détail de la user story"></aside>
+
+    <div class="modal-backdrop" id="modal-backdrop" hidden>
+      <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
+    </div>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <div class="boot" id="boot">
+      <div class="boot-mark"></div>
+      <p>Chargement du tableau…</p>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

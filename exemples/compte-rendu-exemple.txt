@@ -1,0 +1,35 @@
+COMPTE RENDU — REUNION HEBDO PRODUIT
+Mardi 17 novembre, 10h00 — Visio
+
+Participants : Marie Lefèvre, Thomas Bernard, Sofia Rossi, Karim Haddad
+
+ORDRE DU JOUR
+1. Avancement du sprint
+2. Parcours d'inscription
+3. Préparation de la démo client
+4. Points bloquants
+
+AVANCEMENT
+- L'écran d'inscription est en staging, il reste les validations côté serveur.
+- Le tunnel de paiement fonctionne en sandbox.
+- La démo client est confirmée pour le 26 novembre.
+
+DÉCISIONS
+- On garde Stripe comme unique prestataire de paiement pour la v1.
+- Le tableau de bord admin est repoussé en v2.
+
+ACTIONS
+- Thomas doit corriger le bug du header sur mobile avant vendredi, c'est bloquant pour la démo.
+- Sofia : brancher la gestion des erreurs de paiement en v1 (messages clairs + logs).
+- Karim s'occupe de finaliser les maquettes du parcours de paiement pour la v1.
+- Il faut ajouter un mail de confirmation après l'inscription (v1, prioritaire).
+- Léa doit rédiger le plan de recette de l'inscription et le partager jeudi.
+- Marie va contacter le client pour valider la grille tarifaire avant le 24/11.
+- Prévoir un export CSV des commandes en v2, nice to have.
+- Ajouter le suivi analytics des inscriptions pour la v1.
+- Il faut mettre en place un écran de secours si l'API de paiement est indisponible, en v1.1.
+- Corriger les libellés du formulaire de connexion, c'est urgent et rapide.
+
+PROCHAINES ETAPES
+- Point technique mercredi 18/11 à 14h.
+- Démo interne le 24/11.

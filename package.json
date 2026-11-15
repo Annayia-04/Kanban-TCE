@@ -1,0 +1,14 @@
+{
+  "name": "flowboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kanban d'equipe avec extraction automatique de user stories depuis les comptes rendus de reunion.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
