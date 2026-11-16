@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 FROM node:22-alpine
 
 ENV NODE_ENV=production \
@@ -30,5 +29,5 @@ VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4321)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["node", "server.js"]
