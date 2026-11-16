@@ -407,17 +407,27 @@ fichier JSON et garde l'état en mémoire, il lui faut un disque persistant et u
 > Les disques Render nécessitent le plan **Starter** (environ 7 $/service/mois). Sans disque,
 > `db.json` est perdu à chaque redéploiement.
 
-#### Railway (Dockerfile fourni)
+#### Railway
 
-1. **New Project → Deploy from GitHub repo** : Railway détecte le `Dockerfile` (et `railway.json`).
-2. **Settings → Source** : choisis la branche à déployer (`main` en prod, `dev` en staging).
-3. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=basic`, `KANBAN_BASIC_USERS=…`,
+L'image publiée par la CI est **publique** : Railway peut la déployer directement, sans rien
+construire. C'est la voie la plus fiable (aucun build, donc aucune validation de Dockerfile).
+
+1. **New → Deploy from Docker Image** (ou *Settings → Source → Docker Image* sur un service
+   existant) : `ghcr.io/annayia-04/kanban-tce:main`. Aucun identifiant de registre n'est nécessaire.
+2. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=basic`, `KANBAN_BASIC_USERS=…`,
    `KANBAN_AUTH_DOMAINS=…`, `KANBAN_DATA_DIR=/data`. Ne fixe pas `PORT` : Railway le fournit.
-4. **Volume** → monter sur `/data` (1 Go suffit).
+3. **Volume** → monter sur `/data` (1 Go suffit).
+4. **Settings → Deploy → Healthcheck Path** : `/healthz`.
 5. **Settings → Networking → Generate Domain** : HTTPS fourni, aucune configuration DNS.
-6. Staging : **New Environment → staging** (ou dupliquer le service), brancher `dev`, passer
-   `KANBAN_SEED=demo` et utiliser un volume distinct (les volumes sont propres à chaque
+6. Staging : **New Environment → staging**, image `ghcr.io/annayia-04/kanban-tce:staging`,
+   `KANBAN_SEED=demo`, volume et domaine distincts (les volumes sont propres à chaque
    environnement).
+
+Pour construire depuis le dépôt à la place (branche `main`/`dev`), Railway détecte le
+`Dockerfile` à la racine. Vérifie alors que **Settings → Source → Root Directory est vide** :
+un chemin erroné fait échouer le build en quelques secondes avec « Dockerfile failed
+validation ». Le dépôt ne contient volontairement pas de `railway.json` (le *config as code* est
+déprécié et écraserait les réglages du tableau de bord).
 
 Dans les deux cas, l'accès est protégé par le mode `basic` tant qu'il n'y a ni domaine ni SSO :
 le navigateur demande l'email et le mot de passe configurés dans `KANBAN_BASIC_USERS`. Ajoute un
@@ -466,7 +476,6 @@ Dockerfile             Image de production (démarre vide)
 compose.yaml           Production (volume + variables SSO)
 compose.staging.yaml   Staging (démo, port 4322, volume séparé)
 render.yaml            Blueprint Render (prod + staging)
-railway.json           Configuration Railway (Dockerfile + healthcheck)
 .github/workflows/     CI (tests) et CD (image GHCR)
 ```
 
