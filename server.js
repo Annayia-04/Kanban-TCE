@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   db,
@@ -14,6 +15,11 @@ import {
   replaceDb,
   uid,
   ensureShape,
+  normalizeVotes,
+  normalizeIdea,
+  voteScore,
+  seedState,
+  SEED_MODE,
   DATA_DIR,
   STATUSES,
   PRIORITIES,
@@ -40,17 +46,70 @@ const AUTH_DOMAINS = String(process.env.KANBAN_AUTH_DOMAINS || '')
   .map((d) => d.trim().toLowerCase())
   .filter(Boolean);
 
+// Mode « basic » : secours sans proxy SSO. Les comptes sont de la forme
+// email:mot_de_passe, séparés par des virgules. L'email sert d'identité
+// (suggestions, propriété des US), comme avec le SSO.
+const BASIC_USERS = String(process.env.KANBAN_BASIC_USERS || '')
+  .split(',')
+  .map((entry) => entry.trim())
+  .filter(Boolean)
+  .map((entry) => {
+    const i = entry.indexOf(':');
+    if (i <= 0) return null;
+    return { email: entry.slice(0, i).trim().toLowerCase(), password: entry.slice(i + 1) };
+  })
+  .filter((u) => u && u.email);
+
+const BASIC_REALM = 'Basic realm="Flowboard", charset="UTF-8"';
+
+function sameSecret(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function domainAllowed(user) {
+  if (!AUTH_DOMAINS.length) return true;
+  const lower = user.toLowerCase();
+  return AUTH_DOMAINS.some((d) => lower === d || lower.endsWith(`@${d}`));
+}
+
 function checkAuth(req) {
-  if (AUTH_MODE !== 'proxy') return { ok: true, user: null };
+  if (AUTH_MODE === 'none') return { ok: true, user: null };
+
+  if (AUTH_MODE === 'basic') {
+    if (!BASIC_USERS.length) {
+      return { ok: false, status: 503, message: 'Aucun compte configuré (KANBAN_BASIC_USERS).' };
+    }
+    const [scheme, payload] = String(req.headers.authorization || '').split(' ');
+    if (!/^basic$/i.test(scheme || '') || !payload) {
+      return { ok: false, status: 401, message: 'Authentification requise.', challenge: true };
+    }
+    let decoded = '';
+    try {
+      decoded = Buffer.from(payload, 'base64').toString('utf8');
+    } catch {
+      /* base64 invalide */
+    }
+    const sep = decoded.indexOf(':');
+    const email = (sep >= 0 ? decoded.slice(0, sep) : '').trim().toLowerCase();
+    const password = sep >= 0 ? decoded.slice(sep + 1) : '';
+    const account = BASIC_USERS.find((u) => u.email === email);
+    if (!account || !sameSecret(account.password, password)) {
+      return { ok: false, status: 401, message: 'Identifiants invalides.', challenge: true };
+    }
+    if (!domainAllowed(email)) {
+      return { ok: false, status: 403, message: "Ce compte n'est pas autorisé à accéder à ce kanban." };
+    }
+    return { ok: true, user: email };
+  }
+
   const raw = req.headers[AUTH_HEADER];
   const value = Array.isArray(raw) ? raw[0] : raw;
   const user = String(value || '').trim();
   if (!user) return { ok: false, status: 401, message: 'Authentification requise (SSO).' };
-  if (AUTH_DOMAINS.length) {
-    const lower = user.toLowerCase();
-    if (!AUTH_DOMAINS.some((d) => lower === d || lower.endsWith(`@${d}`))) {
-      return { ok: false, status: 403, message: "Ce compte n'est pas autorisé à accéder à ce kanban." };
-    }
+  if (!domainAllowed(user)) {
+    return { ok: false, status: 403, message: "Ce compte n'est pas autorisé à accéder à ce kanban." };
   }
   return { ok: true, user };
 }
@@ -58,6 +117,23 @@ function checkAuth(req) {
 function currentUser(req) {
   const gate = checkAuth(req);
   return gate.ok ? gate.user : null;
+}
+
+/** Identité normalisée de l'appelant (email SSO, minuscules), ou '' si anonyme. */
+function identityOf(req) {
+  return String(currentUser(req) || '')
+    .trim()
+    .toLowerCase();
+}
+
+/** Refuse la requête (401) si aucune identité SSO n'est disponible. */
+function requireIdentity(req, res, message) {
+  const user = identityOf(req);
+  if (!user) {
+    fail(res, 401, message || 'Authentification SSO requise pour cette action.');
+    return null;
+  }
+  return user;
 }
 
 const MIME = {
@@ -71,18 +147,19 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-function json(res, status, payload) {
+function json(res, status, payload, headers = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     'Content-Length': Buffer.byteLength(body),
+    ...headers,
   });
   res.end(body);
 }
 
-function fail(res, status, message) {
-  json(res, status, { error: message });
+function fail(res, status, message, headers) {
+  json(res, status, { error: message }, headers);
 }
 
 function readBody(req) {
@@ -187,6 +264,8 @@ async function handleApi(req, res, url) {
         statuses: STATUSES,
         priorities: PRIORITIES,
         auth: { mode: AUTH_MODE, user: currentUser(req) },
+        demo: SEED_MODE === 'demo',
+        seed: SEED_MODE,
       },
     });
   }
@@ -293,24 +372,148 @@ async function handleApi(req, res, url) {
     if (method === 'POST' && parts.length === 1) {
       const body = await readBody(req);
       if (!String(body.title || '').trim()) return fail(res, 400, 'Le titre est obligatoire.');
-      const story = createStory(body);
+      const story = createStory({ createdBy: identityOf(req) || null, ...body });
       saveDb();
       return json(res, 201, story);
     }
-    if (method === 'PATCH' && parts[1]) {
+    // Vote d'équipe anonyme : uniquement tant que la US n'a pas de version.
+    if (method === 'POST' && parts[1] && parts[2] === 'vote' && parts.length === 3) {
+      const story = db.stories.find((s) => s.id === parts[1]);
+      if (!story) return fail(res, 404, 'User story introuvable.');
+      if (story.versionId) return fail(res, 409, 'Cette US a déjà une version : le vote est clos.');
+      const body = await readBody(req);
+      const value = Number(body.value);
+      if (![1, -1, 0].includes(value)) return fail(res, 400, 'Vote invalide (1 = pour, -1 = contre, 0 = remise à zéro).');
+      story.votes = normalizeVotes(story.votes);
+      if (value === 1) story.votes.up += 1;
+      else if (value === -1) story.votes.down += 1;
+      else story.votes = { up: 0, down: 0 };
+      story.updatedAt = Date.now();
+      saveDb();
+      return json(res, 200, { ...story, score: voteScore(story.votes) });
+    }
+    // Suggestions signées sur une US (auteur = identité SSO).
+    if (method === 'POST' && parts[2] === 'suggestions' && parts.length === 3) {
+      const story = db.stories.find((s) => s.id === parts[1]);
+      if (!story) return fail(res, 404, 'User story introuvable.');
+      const author = requireIdentity(req, res, 'Connecte-toi via le SSO pour proposer une suggestion.');
+      if (!author) return;
+      const body = await readBody(req);
+      const text = String(body.text || '').trim();
+      if (text.length < 3) return fail(res, 400, 'La suggestion est trop courte (3 caractères minimum).');
+      story.suggestions = Array.isArray(story.suggestions) ? story.suggestions : [];
+      if (story.suggestions.length >= 50) return fail(res, 400, 'Trop de suggestions sur cette user story.');
+      const suggestion = { id: uid('sug'), author, text: text.slice(0, 1000), createdAt: Date.now() };
+      story.suggestions.push(suggestion);
+      story.updatedAt = Date.now();
+      saveDb();
+      return json(res, 201, suggestion);
+    }
+    if (method === 'DELETE' && parts[2] === 'suggestions' && parts[3] && parts.length === 4) {
+      const story = db.stories.find((s) => s.id === parts[1]);
+      if (!story) return fail(res, 404, 'User story introuvable.');
+      const suggestion = (story.suggestions || []).find((x) => x.id === parts[3]);
+      if (!suggestion) return fail(res, 404, 'Suggestion introuvable.');
+      const author = requireIdentity(req, res, 'Connecte-toi via le SSO pour supprimer cette suggestion.');
+      if (!author) return;
+      if (suggestion.author && suggestion.author !== author) {
+        return fail(res, 403, 'Seul l’auteur de la suggestion peut la supprimer.');
+      }
+      story.suggestions = story.suggestions.filter((x) => x.id !== suggestion.id);
+      story.updatedAt = Date.now();
+      saveDb();
+      return json(res, 200, { ok: true });
+    }
+    if (method === 'PATCH' && parts[1] && parts.length === 2) {
       const body = await readBody(req);
       const story = updateStory(parts[1], body);
       if (!story) return fail(res, 404, 'User story introuvable.');
       saveDb();
       return json(res, 200, story);
     }
-    if (method === 'DELETE' && parts[1]) {
+    if (method === 'DELETE' && parts.length === 2) {
       const idx = db.stories.findIndex((s) => s.id === parts[1]);
       if (idx < 0) return fail(res, 404, 'User story introuvable.');
+      const story = db.stories[idx];
+      const author = identityOf(req);
+      // Une US créée via le SSO n'est supprimable que par son auteur.
+      // Les US sans auteur (démo, import de CR) restent supprimables par tous.
+      if (story.createdBy && story.createdBy !== author) {
+        return fail(res, 403, 'Seul l’auteur peut supprimer cette user story.');
+      }
       const [removed] = db.stories.splice(idx, 1);
       for (const report of db.reports) {
         report.storyIds = (report.storyIds || []).filter((id) => id !== removed.id);
       }
+      for (const idea of db.ideas || []) {
+        if (idea.promotedStoryId === removed.id) idea.promotedStoryId = null;
+      }
+      saveDb();
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  // --- Idées (boîte à suggestions signée) ---
+  if (parts[0] === 'ideas') {
+    if (method === 'POST' && parts.length === 1) {
+      const author = requireIdentity(req, res, 'Connecte-toi via le SSO pour proposer une idée.');
+      if (!author) return;
+      const body = await readBody(req);
+      const title = String(body.title || '').trim();
+      if (!title) return fail(res, 400, 'Le titre de l’idée est obligatoire.');
+      const idea = normalizeIdea({
+        title: title.slice(0, 200),
+        text: String(body.text || '').slice(0, 2000),
+        author,
+        votes: { up: 0, down: 0 },
+      });
+      db.ideas.unshift(idea);
+      saveDb();
+      return json(res, 201, idea);
+    }
+    const idea = parts[1] ? db.ideas.find((x) => x.id === parts[1]) : null;
+    if (parts[1] && !idea && ['DELETE', 'POST'].includes(method)) return fail(res, 404, 'Idée introuvable.');
+
+    if (method === 'POST' && parts[2] === 'vote' && parts.length === 3) {
+      if (idea.promotedStoryId) return fail(res, 409, 'Cette idée a déjà été promue : le vote est clos.');
+      const body = await readBody(req);
+      const value = Number(body.value);
+      if (![1, -1, 0].includes(value)) return fail(res, 400, 'Vote invalide (1 = pour, -1 = contre, 0 = remise à zéro).');
+      idea.votes = normalizeVotes(idea.votes);
+      if (value === 1) idea.votes.up += 1;
+      else if (value === -1) idea.votes.down += 1;
+      else idea.votes = { up: 0, down: 0 };
+      saveDb();
+      return json(res, 200, { ...idea, score: voteScore(idea.votes) });
+    }
+
+    if (method === 'POST' && parts[2] === 'promote' && parts.length === 3) {
+      const author = requireIdentity(req, res, 'Connecte-toi via le SSO pour promouvoir une idée.');
+      if (!author) return;
+      if (idea.promotedStoryId) return fail(res, 409, 'Cette idée a déjà été promue.');
+      const story = createStory({
+        title: idea.title,
+        description: idea.text,
+        createdBy: idea.author || author,
+        versionId: null,
+        status: 'todo',
+        tags: ['idée'],
+        source: { line: 0, section: 'Boîte à idées', excerpt: String(idea.text || '').slice(0, 220) },
+      });
+      idea.promotedStoryId = story.id;
+      idea.promotedAt = Date.now();
+      saveDb();
+      return json(res, 201, { idea, story });
+    }
+
+    if (method === 'DELETE' && parts.length === 2) {
+      const author = requireIdentity(req, res, 'Connecte-toi via le SSO pour supprimer cette idée.');
+      if (!author) return;
+      if (idea.author && idea.author !== author) {
+        return fail(res, 403, 'Seul l’auteur de l’idée peut la supprimer.');
+      }
+      const idx = db.ideas.findIndex((x) => x.id === idea.id);
+      db.ideas.splice(idx, 1);
       saveDb();
       return json(res, 200, { ok: true });
     }
@@ -337,6 +540,7 @@ async function handleApi(req, res, url) {
     for (const row of rows.slice(0, 100)) {
       const story = createStory({
         ...row,
+        createdBy: row.createdBy || identityOf(req) || null,
         reportId: report.id,
         status: STATUSES.includes(row.status) ? row.status : 'todo',
         source: row.source || { line: 0, section: '', excerpt: String(row.description || '').slice(0, 220) },
@@ -413,12 +617,18 @@ async function handleApi(req, res, url) {
   }
 
   if (pathname === '/reset' && method === 'POST') {
-    replaceDb(makeSeed());
+    if (SEED_MODE !== 'demo') {
+      return fail(res, 403, 'Réinitialisation de la démo désactivée sur cette instance.');
+    }
+    replaceDb(seedState());
     return json(res, 200, publicState());
   }
 
   if (pathname === '/demo-cr' && method === 'GET') {
     const demo = db.reports.find((r) => r.id === 'rep_demo');
+    if (!demo && SEED_MODE !== 'demo') {
+      return fail(res, 404, 'Aucun compte rendu d’exemple sur cette instance.');
+    }
     return json(res, 200, { text: demo?.text || makeSeed().reports[0].text });
   }
 
@@ -487,8 +697,9 @@ const server = http.createServer(async (req, res) => {
 
   const gate = checkAuth(req);
   if (!gate.ok) {
-    if (url.pathname.startsWith('/api/')) return fail(res, gate.status, gate.message);
-    res.writeHead(gate.status, { 'Content-Type': 'text/html; charset=utf-8' });
+    const headers = gate.challenge ? { 'WWW-Authenticate': BASIC_REALM } : {};
+    if (url.pathname.startsWith('/api/')) return fail(res, gate.status, gate.message, headers);
+    res.writeHead(gate.status, { 'Content-Type': 'text/html; charset=utf-8', ...headers });
     return res.end(
       `<!doctype html><meta charset="utf-8"><title>Accès refusé</title><body style="font-family:system-ui;padding:48px;max-width:560px;margin:auto"><h1>Accès refusé</h1><p>${gate.message}</p></body>`
     );

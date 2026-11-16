@@ -1,0 +1,61 @@
+# Render Blueprint — Flowboard (production + staging).
+# https://render.com/docs/blueprint-spec
+#
+# 1. Pousse ce dépôt sur GitHub (branches main et dev).
+# 2. Render → New → Blueprint → sélectionne le dépôt : les deux services sont créés.
+# 3. Renseigne les variables secrètes demandées (KANBAN_BASIC_USERS, KANBAN_AUTH_DOMAINS).
+#
+# Les disques persistants sont disponibles à partir du plan « Starter ».
+# Sans disque, les données (db.json) sont perdues à chaque redéploiement.
+#
+# Le staging suit la branche « dev » : crée-la avant d'appliquer le blueprint,
+# ou remplace branch: dev par branch: main.
+
+services:
+  - type: web
+    name: flowboard
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    branch: main
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: KANBAN_SEED
+        value: empty
+      - key: KANBAN_DATA_DIR
+        value: /data
+      - key: KANBAN_AUTH_MODE
+        value: basic
+      - key: KANBAN_BASIC_USERS
+        sync: false
+      - key: KANBAN_AUTH_DOMAINS
+        sync: false
+    disk:
+      name: flowboard-data
+      mountPath: /data
+      sizeGB: 1
+
+  - type: web
+    name: flowboard-staging
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    branch: dev
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: KANBAN_SEED
+        value: demo
+      - key: KANBAN_DATA_DIR
+        value: /data
+      - key: KANBAN_AUTH_MODE
+        value: basic
+      - key: KANBAN_BASIC_USERS
+        sync: false
+      - key: KANBAN_AUTH_DOMAINS
+        sync: false
+    disk:
+      name: flowboard-staging-data
+      mountPath: /data
+      sizeGB: 1

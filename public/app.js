@@ -31,6 +31,10 @@ const ICONS = {
   refresh: '<path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M3 21v-5h5"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
   filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
+  voteUp: '<path d="M7 22V11l4.5-8 1.6 1.6L11.6 9H19a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 17.6 22H7z"/><path d="M2 22h5V11H2z"/>',
+  voteDown: '<path d="M17 2v11l-4.5 8-1.6-1.6L12.4 15H5a2 2 0 0 1-2-2.4l1.4-7A2 2 0 0 1 6.4 2H17z"/><path d="M22 2h-5v11h5z"/>',
+  bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V18h8v-3.3A7 7 0 0 0 12 2z"/>',
+  message: '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
 };
 
 const icon = (name, cls = '') =>
@@ -82,6 +86,43 @@ const initials = (name = '') => {
 const member = (id) => state.data?.members.find((m) => m.id === id) || null;
 const story = (id) => state.data?.stories.find((s) => s.id === id) || null;
 const version = (id) => state.data?.versions.find((v) => v.id === id) || null;
+
+const currentUser = () => String(state.data?.meta?.auth?.user || '').toLowerCase();
+const memberByEmail = (email) =>
+  state.data?.members.find((m) => (m.email || '').toLowerCase() === String(email || '').toLowerCase()) || null;
+const authorName = (email) => memberByEmail(email)?.name || email || 'Anonyme';
+const canDelete = (createdBy) => !createdBy || (currentUser() && createdBy === currentUser());
+
+function personHtml(email, cls = '') {
+  const m = memberByEmail(email);
+  if (!m) {
+    return `<span class="person ${cls}"><span class="avatar sm" style="background:var(--border-strong)">?</span>${esc(
+      email || 'Anonyme'
+    )}</span>`;
+  }
+  return `<span class="person ${cls}">${avatarHtml(m.id, 'sm')}${esc(m.name)}</span>`;
+}
+
+const votesOf = (s) => {
+  const up = Math.max(0, Number(s?.votes?.up) || 0);
+  const down = Math.max(0, Number(s?.votes?.down) || 0);
+  return { up, down, score: up - down, total: up + down };
+};
+
+const scoreLabel = (score) => (score > 0 ? `+${score}` : String(score));
+
+function voteChipHtml(s, cls = '') {
+  const v = votesOf(s);
+  if (!v.total) return '';
+  const tone = v.score > 0 ? 'pos' : v.score < 0 ? 'neg' : '';
+  return `<span class="chip vote-chip ${tone} ${cls}" title="${v.up} pour · ${v.down} contre">${icon(v.score < 0 ? 'voteDown' : 'voteUp')}${scoreLabel(v.score)}</span>`;
+}
+
+function voteBarHtml(s) {
+  const v = votesOf(s);
+  const pct = v.total ? Math.round((v.up / v.total) * 100) : 50;
+  return `<div class="vote-bar" aria-hidden="true"><span class="for" style="width:${pct}%"></span></div>`;
+}
 
 function avatarHtml(id, cls = '') {
   const m = member(id);
@@ -152,7 +193,7 @@ function render() {
   renderView();
 }
 
-const ROUTES = ['board', 'backlog', 'reports', 'team'];
+const ROUTES = ['board', 'votes', 'ideas', 'backlog', 'reports', 'team'];
 
 function go(view, { updateHash = true } = {}) {
   state.jumpTop = true;
@@ -168,6 +209,8 @@ function renderSidebar() {
   const active = (v) => (state.view === v ? 'is-active' : '');
   const nav = [
     { id: 'board', label: 'Tableau', icon: 'board', count: d.stories.filter((s) => s.status !== 'done').length },
+    { id: 'votes', label: 'Qualification', icon: 'voteUp', count: d.stories.filter((s) => !s.versionId).length },
+    { id: 'ideas', label: 'Idées', icon: 'bulb', count: (d.ideas || []).filter((i) => !i.promotedStoryId).length },
     { id: 'backlog', label: 'Backlog', icon: 'list', count: d.stories.length },
     { id: 'reports', label: 'Comptes rendus', icon: 'file', count: d.reports.length },
     { id: 'team', label: 'Équipe', icon: 'users', count: d.members.length },
@@ -301,6 +344,8 @@ function renderView() {
   const scrollY = window.scrollY;
 
   if (state.view === 'board') view.innerHTML = boardHtml();
+  else if (state.view === 'votes') view.innerHTML = votesHtml();
+  else if (state.view === 'ideas') view.innerHTML = ideasHtml();
   else if (state.view === 'backlog') view.innerHTML = backlogHtml();
   else if (state.view === 'reports') view.innerHTML = reportsHtml();
   else if (state.view === 'team') view.innerHTML = teamHtml();
@@ -349,7 +394,7 @@ function cardHtml(s) {
     <article class="card prio-${s.priority} ${s.status === 'done' ? 'done' : ''}" draggable="true" data-id="${s.id}">
       <div class="card-top">
         <span class="card-key">${esc(s.key)}</span>
-        ${v ? versionChip(v, true) : ''}
+        ${v ? versionChip(v, true) : voteChipHtml(s)}
       </div>
       <div class="card-title">${esc(s.title)}</div>
       ${
@@ -410,6 +455,210 @@ function boardHtml() {
   `;
 }
 
+/* ---------------------------- Vue : Qualification (vote) ---------------------------- */
+
+function qualificationPool() {
+  const q = state.q.trim().toLowerCase();
+  return state.data.stories.filter((s) => {
+    if (s.versionId) return false;
+    if (state.fAssignee !== 'all') {
+      if (state.fAssignee === 'none' ? s.assigneeIds.length > 0 : !s.assigneeIds.includes(state.fAssignee)) return false;
+    }
+    if (q) {
+      const names = s.assigneeIds.map((id) => member(id)?.name || '').join(' ');
+      const hay = `${s.key} ${s.title} ${s.description} ${s.asA} ${s.iWant} ${s.soThat} ${(s.tags || []).join(' ')} ${names}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function voteRowHtml(s) {
+  const v = votesOf(s);
+  const scoreCls = v.score > 0 ? 'pos' : v.score < 0 ? 'neg' : '';
+  return `
+    <article class="vote-row" data-id="${s.id}">
+      <div class="vote-main">
+        <div class="vote-head">
+          <span class="card-key">${esc(s.key)}</span>
+          <span class="vote-title" data-act="open-story" data-id="${s.id}" title="Ouvrir la fiche">${esc(s.title)}</span>
+          ${(s.tags || []).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}
+          ${
+            s.suggestions?.length
+              ? `<span class="chip sug-chip" title="${s.suggestions.length} suggestion(s)">${icon('message')}${s.suggestions.length}</span>`
+              : ''
+          }
+        </div>
+        <div class="vote-meta">
+          ${avatarsHtml(s.assigneeIds, 'sm') || '<span class="vmuted">Non assignée</span>'}
+          <span class="chip prio-${s.priority}">${PRIORITIES[s.priority]}</span>
+          ${s.points != null ? `<span class="vmuted">${s.points} pts</span>` : ''}
+          ${s.due ? `<span class="vmuted">${icon('calendar')}${esc(s.due)}</span>` : ''}
+        </div>
+      </div>
+      <div class="vote-tally">
+        <div class="vote-score ${scoreCls}">${scoreLabel(v.score)}<small>${v.total} vote${v.total > 1 ? 's' : ''}</small></div>
+        ${voteBarHtml(s)}
+        <div class="vote-counts"><span class="for">${v.up} pour</span><span class="against">${v.down} contre</span></div>
+      </div>
+      <div class="vote-actions">
+        <button class="btn btn-sm vote-btn for" data-act="vote" data-id="${s.id}" data-value="1" title="Voter pour cette US">${icon('voteUp')}Pour</button>
+        <button class="btn btn-sm vote-btn against" data-act="vote" data-id="${s.id}" data-value="-1" title="Voter contre cette US">${icon('voteDown')}Contre</button>
+        <select class="select qualify-select" data-act="qualify" data-id="${s.id}" title="Attribuer une version : le vote se clôt">
+          <option value="">Qualifier en…</option>
+          ${state.data.versions.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}
+        </select>
+        ${
+          v.total
+            ? `<button class="btn btn-sm btn-ghost btn-icon" data-act="vote" data-id="${s.id}" data-value="0" title="Remettre les compteurs à zéro">${icon('refresh')}</button>`
+            : ''
+        }
+      </div>
+    </article>`;
+}
+
+function votesHtml() {
+  const all = state.data.stories.filter((s) => !s.versionId);
+  const pool = qualificationPool().sort(
+    (a, b) => votesOf(b).score - votesOf(a).score || Number(a.key.replace(/\D/g, '')) - Number(b.key.replace(/\D/g, ''))
+  );
+  const totalVotes = all.reduce((n, s) => n + votesOf(s).total, 0);
+  const leader = [...all].sort((a, b) => votesOf(b).score - votesOf(a).score)[0];
+
+  const stats = `
+    <div class="stats">
+      <div class="stat"><div class="k">US à qualifier</div><div class="v">${all.length}</div></div>
+      <div class="stat"><div class="k">Votes exprimés</div><div class="v">${totalVotes}</div></div>
+      <div class="stat"><div class="k">En tête</div><div class="v" style="font-size:15px">${
+        leader && votesOf(leader).total ? `${esc(leader.key)} <small>${scoreLabel(votesOf(leader).score)}</small>` : '—'
+      }</div></div>
+      <div class="stat"><div class="k">Qualifiées</div><div class="v">${state.data.stories.length - all.length}</div></div>
+    </div>`;
+
+  return `
+    <div class="view-head">
+      <div>
+        <h1>Qualification</h1>
+        <div class="sub">Vote anonyme de l’équipe sur les US <b>sans version</b> : « pour » ou « contre ». Attribuer une version clôt le vote.</div>
+      </div>
+      <div class="actions">
+        ${hasFilters() ? `<button class="btn btn-ghost" data-act="clear-filters">${icon('close')}Effacer les filtres</button>` : ''}
+        <button class="btn" data-act="new-story-unversioned">${icon('plus')}US à qualifier</button>
+      </div>
+    </div>
+    ${stats}
+    ${
+      all.length
+        ? `<div class="banner info">${icon('info')}<div>Chaque clic ajoute une voix au compteur <b>pour</b> ou <b>contre</b>. Le score affiché est « pour − contre » : les US les mieux notées remontent en haut de la file. Utilise « Qualifier en… » pour trancher et sortir l’US du vote.</div></div>`
+        : ''
+    }
+    ${
+      pool.length
+        ? `<div class="vote-list">${pool.map(voteRowHtml).join('')}</div>`
+        : all.length
+          ? `<div class="empty"><h3>Aucun résultat</h3><p>Aucune US à qualifier ne correspond à la recherche ou au filtre personne.</p><button class="btn" data-act="clear-filters">${icon('close')}Effacer les filtres</button></div>`
+          : `<div class="empty">
+              <h3>Toutes les US sont qualifiées</h3>
+              <p>Plus aucune user story n’attend de version. Crée une US sans version pour ouvrir un vote d’équipe.</p>
+              <button class="btn btn-primary" data-act="new-story-unversioned">${icon('plus')}Créer une US à qualifier</button>
+            </div>`
+    }
+  `;
+}
+
+/* ---------------------------- Vue : Boîte à idées ---------------------------- */
+
+function ideasHtml() {
+  const user = currentUser();
+  const ideas = [...(state.data.ideas || [])].sort(
+    (a, b) =>
+      Number(Boolean(a.promotedStoryId)) - Number(Boolean(b.promotedStoryId)) || votesOf(b).score - votesOf(a).score
+  );
+  const open = ideas.filter((i) => !i.promotedStoryId);
+  const promoted = ideas.filter((i) => i.promotedStoryId);
+  const totalVotes = ideas.reduce((n, i) => n + votesOf(i).total, 0);
+
+  const card = (idea) => {
+    const v = votesOf(idea);
+    const scoreCls = v.score > 0 ? 'pos' : v.score < 0 ? 'neg' : '';
+    const story_ = idea.promotedStoryId ? story(idea.promotedStoryId) : null;
+    return `
+      <article class="idea-card ${idea.promotedStoryId ? 'is-promoted' : ''}" data-id="${idea.id}">
+        <div class="idea-main">
+          <div class="idea-head">
+            <span class="idea-title">${esc(idea.title)}</span>
+            ${
+              idea.promotedStoryId
+                ? `<span class="chip promoted-chip">${icon('check')}${story_ ? esc(story_.key) : 'promue'}</span>`
+                : ''
+            }
+          </div>
+          ${idea.text ? `<p class="idea-text">${esc(idea.text)}</p>` : ''}
+          <div class="idea-meta">
+            ${personHtml(idea.author, 'sm')}
+            <span class="vmuted">${fmtDate(idea.createdAt)}</span>
+            ${idea.promotedAt ? `<span class="vmuted">· promue le ${fmtShort(idea.promotedAt)}</span>` : ''}
+          </div>
+        </div>
+
+        <div class="idea-tally">
+          <div class="vote-score ${scoreCls}">${scoreLabel(v.score)}<small>${v.total} vote${v.total > 1 ? 's' : ''}</small></div>
+          ${voteBarHtml(idea)}
+          <div class="vote-counts"><span class="for">${v.up} pour</span><span class="against">${v.down} contre</span></div>
+        </div>
+
+        <div class="vote-actions">
+          ${
+            idea.promotedStoryId
+              ? `<span class="vmuted">Vote clos</span>`
+              : `<button class="btn btn-sm vote-btn for" data-act="idea-vote" data-id="${idea.id}" data-value="1" title="Voter pour cette idée">${icon('voteUp')}Pour</button>
+                 <button class="btn btn-sm vote-btn against" data-act="idea-vote" data-id="${idea.id}" data-value="-1" title="Voter contre cette idée">${icon('voteDown')}Contre</button>
+                 <button class="btn btn-sm" data-act="promote-idea" data-id="${idea.id}" ${user ? '' : 'disabled title="Connecte-toi via le SSO"'}>${icon('check')}Promouvoir</button>`
+          }
+          ${
+            idea.author && canDelete(idea.author)
+              ? `<button class="btn btn-sm btn-ghost btn-icon btn-danger" data-act="delete-idea" data-id="${idea.id}" title="Supprimer mon idée">${icon('trash')}</button>`
+              : ''
+          }
+        </div>
+      </article>`;
+  };
+
+  return `
+    <div class="view-head">
+      <div>
+        <h1>Boîte à idées</h1>
+        <div class="sub">Chaque idée est signée de son auteur. L’équipe vote pour ou contre, puis une idée peut être promue en user story (sans version, direction Qualification).</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" data-act="new-idea" ${user ? '' : 'disabled title="Connecte-toi via le SSO"'}>${icon('plus')}Proposer une idée</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">Idées ouvertes</div><div class="v">${open.length}</div></div>
+      <div class="stat"><div class="k">Votes exprimés</div><div class="v">${totalVotes}</div></div>
+      <div class="stat"><div class="k">Promues en US</div><div class="v">${promoted.length}</div></div>
+    </div>
+
+    ${
+      user
+        ? ''
+        : `<div class="banner info">${icon('info')}<div>Mode local : consultation seule. Proposer, promouvoir ou supprimer une idée demande une identité SSO ; le vote pour/contre reste anonyme et ouvert.</div></div>`
+    }
+
+    ${
+      ideas.length
+        ? `<div class="idea-list">${ideas.map(card).join('')}</div>`
+        : `<div class="empty">
+            <h3>Aucune idée pour l’instant</h3>
+            <p>Propose une idée : elle sera signée de ton nom, votée par l’équipe, puis pourra devenir une user story.</p>
+            <button class="btn btn-primary" data-act="new-idea" ${user ? '' : 'disabled'}>${icon('plus')}Proposer une idée</button>
+          </div>`
+    }
+  `;
+}
+
 /* ---------------------------- Vue : Backlog ---------------------------- */
 
 function statusSelect(s, small = true) {
@@ -423,7 +672,7 @@ function rowHtml(s) {
     <div class="trow" data-id="${s.id}">
       <span class="tkey">${esc(s.key)}</span>
       <span class="ttitle ${s.status === 'done' ? 'done' : ''}">${esc(s.title)}</span>
-      <span>${versionChip(version(s.versionId), true) || '<span style="color:var(--muted);font-size:11.5px">—</span>'}</span>
+      <span>${versionChip(version(s.versionId), true) || voteChipHtml(s) || '<span style="color:var(--muted);font-size:11.5px">—</span>'}</span>
       <span class="tassignees">${avatarsHtml(s.assigneeIds, 'sm') || '<span style="color:var(--muted);font-size:11.5px">—</span>'}</span>
       <span>${statusSelect(s)}</span>
       <span><span class="chip prio-${s.priority}">${PRIORITIES[s.priority]}</span></span>
@@ -530,7 +779,11 @@ function reportsHtml() {
         <textarea class="textarea" id="cr-text" rows="7" placeholder="Colle ici le compte rendu de réunion…&#10;&#10;Ex : « Marie doit valider les tarifs avant vendredi. Thomas va brancher le paiement en v1. »"></textarea>
         <div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-primary" data-act="analyze-text">${icon('sparkles')}Analyser</button>
-          <button class="btn btn-ghost" data-act="load-demo">Charger l’exemple</button>
+          ${
+            state.data.meta?.demo === false
+              ? ''
+              : `<button class="btn btn-ghost" data-act="load-demo">Charger l’exemple</button>`
+          }
           <span style="margin-left:auto;font-size:11.5px;color:var(--muted)">30 caractères minimum</span>
         </div>
       </div>
@@ -814,6 +1067,80 @@ function teamHtml() {
 
 /* ---------------------------- Drawer (détail US) ---------------------------- */
 
+function votePanelHtml(s) {
+  const v = votesOf(s);
+  const scoreCls = v.score > 0 ? 'pos' : v.score < 0 ? 'neg' : '';
+
+  if (s.versionId) {
+    if (!v.total) return '';
+    const vv = version(s.versionId);
+    return `<div class="vote-closed">${icon('check')}<span>Vote clos : ${v.up} pour / ${v.down} contre${
+      vv ? ` · qualifiée en <b>${esc(vv.name)}</b>` : ''
+    }</span></div>`;
+  }
+
+  return `
+    <div class="field" id="vote-panel-wrap">
+      <span class="field-label">Vote d’équipe · US sans version</span>
+      <div class="vote-panel" id="vote-panel">
+        <div class="vote-panel-top">
+          <span class="vote-score ${scoreCls}">${scoreLabel(v.score)}<small>${v.total} vote${v.total > 1 ? 's' : ''}</small></span>
+          <div class="vote-counts"><span class="for">${v.up} pour</span><span class="against">${v.down} contre</span></div>
+        </div>
+        ${voteBarHtml(s)}
+        <div class="vote-panel-actions">
+          <button class="btn btn-sm vote-btn for" data-act="vote" data-id="${s.id}" data-value="1">${icon('voteUp')}Pour</button>
+          <button class="btn btn-sm vote-btn against" data-act="vote" data-id="${s.id}" data-value="-1">${icon('voteDown')}Contre</button>
+          ${
+            v.total
+              ? `<button class="btn btn-sm btn-ghost" data-act="vote" data-id="${s.id}" data-value="0">${icon('refresh')}Réinitialiser</button>`
+              : ''
+          }
+        </div>
+        <div class="vote-hint">Vote anonyme : le compteur s’incrémente à chaque clic. Attribuer une version clôt le vote.</div>
+      </div>
+    </div>`;
+}
+
+function suggestionsHtml(s) {
+  const user = currentUser();
+  const list = s.suggestions || [];
+  return `
+    <div class="field" id="suggestions-block">
+      <span class="field-label">Suggestions${list.length ? ` (${list.length})` : ''}</span>
+      <div class="sug-list">
+        ${
+          list.length
+            ? list
+                .map(
+                  (sug) => `
+          <div class="sug">
+            ${personHtml(sug.author, 'sm')}
+            <div class="sug-body">
+              <div class="sug-text">${esc(sug.text)}</div>
+              <div class="sug-meta">${fmtShort(sug.createdAt)}${
+                user && sug.author === user
+                  ? ` · <button class="link-danger" data-act="del-suggestion" data-id="${s.id}" data-sug="${sug.id}">Supprimer</button>`
+                  : ''
+              }</div>
+            </div>
+          </div>`
+                )
+                .join('')
+            : `<div class="sug-empty">Aucune suggestion pour l’instant.</div>`
+        }
+      </div>
+      ${
+        user
+          ? `<div class="sug-form">
+              <textarea class="textarea" id="sug-input" rows="2" placeholder="Propose une précision, un cas limite, une alternative…"></textarea>
+              <button class="btn btn-sm btn-primary" data-act="add-suggestion" data-id="${s.id}">${icon('plus')}Proposer</button>
+            </div>`
+          : `<div class="sug-hint">${icon('info')}Connecte-toi via le SSO pour proposer une suggestion.</div>`
+      }
+    </div>`;
+}
+
 function openStory(id) {
   const s = story(id);
   if (!s) return;
@@ -858,6 +1185,10 @@ function openStory(id) {
             .join('')}
         </div>
       </div>
+
+      ${votePanelHtml(s)}
+
+      ${suggestionsHtml(s)}
 
       <div class="meta-grid">
         <div class="field">
@@ -907,8 +1238,12 @@ function openStory(id) {
       }
 
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted)">
-        <span>Créée le ${fmtDate(s.createdAt)}</span>
-        <button class="btn btn-ghost btn-sm btn-danger" data-act="delete-story">${icon('trash')}Supprimer</button>
+        <span>${
+          s.createdBy ? `Créée par ${esc(authorName(s.createdBy))} · ` : ''
+        }le ${fmtDate(s.createdAt)}</span>
+        <button class="btn btn-ghost btn-sm btn-danger" data-act="delete-story" ${
+          canDelete(s.createdBy) ? '' : 'disabled title="Seul l’auteur peut supprimer cette US"'
+        }>${icon('trash')}Supprimer</button>
       </div>
     </div>
     <div class="drawer-foot">
@@ -1010,8 +1345,8 @@ function confirmModal(title, message, onConfirm, confirmLabel = 'Confirmer') {
   });
 }
 
-function newStoryModal(status = 'todo') {
-  const v = state.data.versions[0];
+function newStoryModal(status = 'todo', { noVersion = false } = {}) {
+  const v = noVersion ? null : state.data.versions[0];
   openModal(`
     <h2>Nouvelle user story</h2>
     <div class="m-sub">Une action concrète, assignable et testable.</div>
@@ -1195,7 +1530,11 @@ function projectModal() {
         <div class="field"><label> </label><div style="font-size:11.5px;color:var(--muted);padding-top:9px">${state.data.stories.length} US · ${state.data.members.length} membres</div></div>
       </div>
       <div class="m-actions">
-        <button type="button" class="btn btn-ghost btn-danger" data-act="reset-demo">${icon('refresh')}Réinitialiser la démo</button>
+        ${
+          state.data.meta?.demo === false
+            ? ''
+            : `<button type="button" class="btn btn-ghost btn-danger" data-act="reset-demo">${icon('refresh')}Réinitialiser la démo</button>`
+        }
         <span style="flex:1"></span>
         <button type="button" class="btn" data-act="modal-close">Annuler</button>
         <button class="btn btn-primary" type="submit">Enregistrer</button>
@@ -1359,6 +1698,167 @@ async function moveStory(id, status, index) {
   }
 }
 
+/* ---------------------------- Vote d'équipe ---------------------------- */
+
+function refreshVotePanel(id = state.openStoryId) {
+  const s = story(id);
+  if (!s || $('#drawer').hidden) return;
+  const wrap = $('#vote-panel-wrap');
+  if (!wrap) return;
+  const html = votePanelHtml(s);
+  if (html) wrap.outerHTML = html;
+  else wrap.remove();
+}
+
+const voteSeq = new Map();
+
+async function voteStory(id, value) {
+  const s = story(id);
+  if (!s) return;
+  if (s.versionId) return toast('Cette US a déjà une version : le vote est clos.', 'err');
+  const seq = (voteSeq.get(id) || 0) + 1;
+  voteSeq.set(id, seq);
+  const before = votesOf(s);
+  s.votes =
+    value === 1
+      ? { up: before.up + 1, down: before.down }
+      : value === -1
+        ? { up: before.up, down: before.down + 1 }
+        : { up: 0, down: 0 };
+  renderView();
+  refreshVotePanel(id);
+  try {
+    const updated = await api(`/stories/${id}/vote`, { method: 'POST', body: { value } });
+    if (voteSeq.get(id) !== seq) return; // une réponse plus récente a déjà pris le dessus
+    s.votes = updated.votes;
+    renderView();
+    refreshVotePanel(id);
+  } catch (err) {
+    if (voteSeq.get(id) !== seq) return;
+    s.votes = { up: before.up, down: before.down };
+    renderView();
+    refreshVotePanel(id);
+    toast(err.message, 'err');
+  }
+}
+
+/* ---------------------------- Suggestions & idées ---------------------------- */
+
+async function addSuggestion(storyId) {
+  const input = $('#sug-input');
+  const text = (input?.value || '').trim();
+  if (text.length < 3) return toast('La suggestion est trop courte.', 'err');
+  try {
+    await api(`/stories/${storyId}/suggestions`, { method: 'POST', body: { text } });
+    await load();
+    const s = story(storyId);
+    const block = $('#suggestions-block');
+    if (block && s) block.outerHTML = suggestionsHtml(s);
+    renderView();
+    toast('Suggestion ajoutée');
+  } catch (err) {
+    toast(err.message, 'err', 5000);
+  }
+}
+
+function deleteSuggestion(storyId, sugId) {
+  confirmModal(
+    'Supprimer cette suggestion ?',
+    'Elle sera retirée de la fiche de la user story.',
+    async () => {
+      await api(`/stories/${storyId}/suggestions/${sugId}`, { method: 'DELETE' });
+      await load();
+      const s = story(storyId);
+      const block = $('#suggestions-block');
+      if (block && s) block.outerHTML = suggestionsHtml(s);
+      renderView();
+      toast('Suggestion supprimée');
+    },
+    'Supprimer'
+  );
+}
+
+async function voteIdea(id, value) {
+  const idea = (state.data.ideas || []).find((x) => x.id === id);
+  if (!idea) return;
+  if (idea.promotedStoryId) return toast('Cette idée est déjà promue : le vote est clos.', 'err');
+  const key = `idea:${id}`;
+  const seq = (voteSeq.get(key) || 0) + 1;
+  voteSeq.set(key, seq);
+  const before = votesOf(idea);
+  idea.votes =
+    value === 1
+      ? { up: before.up + 1, down: before.down }
+      : value === -1
+        ? { up: before.up, down: before.down + 1 }
+        : { up: 0, down: 0 };
+  renderView();
+  try {
+    const updated = await api(`/ideas/${id}/vote`, { method: 'POST', body: { value } });
+    if (voteSeq.get(key) !== seq) return;
+    idea.votes = updated.votes;
+    renderView();
+  } catch (err) {
+    if (voteSeq.get(key) !== seq) return;
+    idea.votes = { up: before.up, down: before.down };
+    renderView();
+    toast(err.message, 'err');
+  }
+}
+
+async function promoteIdea(id) {
+  try {
+    const res = await api(`/ideas/${id}/promote`, { method: 'POST' });
+    await load();
+    render();
+    toast(`Idée promue en ${res.story.key} — elle rejoint la Qualification`);
+  } catch (err) {
+    toast(err.message, 'err', 5000);
+  }
+}
+
+function deleteIdea(id) {
+  confirmModal(
+    'Supprimer cette idée ?',
+    'Elle sera retirée de la boîte à idées, avec ses votes.',
+    async () => {
+      await api(`/ideas/${id}`, { method: 'DELETE' });
+      await load();
+      render();
+      toast('Idée supprimée');
+    },
+    'Supprimer'
+  );
+}
+
+function ideaModal() {
+  if (!currentUser()) return toast('Connecte-toi via le SSO pour proposer une idée.', 'err');
+  openModal(`
+    <h2>Proposer une idée</h2>
+    <div class="m-sub">Elle est signée de ton nom. L’équipe vote, puis l’idée peut être promue en user story.</div>
+    <form class="m-fields" id="idea-form">
+      <div class="field"><label>Titre</label><input class="input" name="title" placeholder="Ex : Notifications de paiement échoué" required /></div>
+      <div class="field"><label>Détail (optionnel)</label><textarea class="textarea" name="text" rows="4" placeholder="Contexte, bénéfice attendu, contraintes…"></textarea></div>
+      <div class="m-actions">
+        <button type="button" class="btn" data-act="modal-close">Annuler</button>
+        <button class="btn btn-primary" type="submit">${icon('plus')}Proposer</button>
+      </div>
+    </form>
+  `);
+  $('#idea-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('/ideas', { method: 'POST', body: Object.fromEntries(new FormData(e.target).entries()) });
+      await load();
+      closeModal();
+      go('ideas');
+      toast('Idée proposée');
+    } catch (err) {
+      toast(err.message, 'err', 5000);
+    }
+  });
+}
+
 /* ---------------------------- Abonnements globaux ---------------------------- */
 
 function bindGlobalEvents() {
@@ -1395,6 +1895,33 @@ function bindGlobalEvents() {
         break;
       case 'new-story':
         newStoryModal();
+        break;
+      case 'new-story-unversioned':
+        newStoryModal('todo', { noVersion: true });
+        break;
+      case 'vote':
+        voteStory(id, Number(el.dataset.value));
+        break;
+      case 'idea-vote':
+        voteIdea(id, Number(el.dataset.value));
+        break;
+      case 'new-idea':
+        ideaModal();
+        break;
+      case 'promote-idea':
+        promoteIdea(id);
+        break;
+      case 'delete-idea':
+        deleteIdea(id);
+        break;
+      case 'add-suggestion':
+        addSuggestion(id);
+        break;
+      case 'del-suggestion':
+        deleteSuggestion(id, el.dataset.sug);
+        break;
+      case 'open-story':
+        openStory(id);
         break;
       case 'new-story-status':
         newStoryModal(el.dataset.status);
@@ -1505,6 +2032,10 @@ function bindGlobalEvents() {
       case 'delete-story': {
         const s = story(state.openStoryId);
         if (!s) break;
+        if (!canDelete(s.createdBy)) {
+          toast('Seul l’auteur peut supprimer cette user story.', 'err');
+          break;
+        }
         confirmModal('Supprimer cette user story ?', `${s.key} — ${s.title}`, async () => {
           await api(`/stories/${s.id}`, { method: 'DELETE' });
           closeDrawer();
@@ -1541,6 +2072,23 @@ function bindGlobalEvents() {
 
   // Changements de champs
   document.addEventListener('change', async (e) => {
+    const qualify = e.target.closest('[data-act="qualify"]');
+    if (qualify) {
+      const s = story(qualify.dataset.id);
+      if (!s) return;
+      const versionId = qualify.value || null;
+      try {
+        await api(`/stories/${s.id}`, { method: 'PATCH', body: { versionId } });
+        await load();
+        render();
+        const v = version(versionId);
+        toast(v ? `${s.key} qualifiée en ${v.name} — vote clos` : `${s.key} remise au vote`);
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+      return;
+    }
+
     const rowSelect = e.target.closest('[data-act="row-status"]');
     if (rowSelect) {
       const s = story(rowSelect.dataset.id);
@@ -1579,6 +2127,7 @@ function bindGlobalEvents() {
         renderView();
         renderSidebar();
       }
+      if (name === 'versionId') openStory(s.id);
       if (name === 'status') {
         const chip = $('.drawer-head .chip');
         if (chip) {

@@ -1,0 +1,35 @@
+# Flowboard — environnement de staging (tests / recette).
+# Même image que la production, mais :
+#   - jeu de données de démonstration (KANBAN_SEED=demo) ;
+#   - bouton « Réinitialiser la démo » actif ;
+#   - volume et port séparés, pour ne jamais toucher aux données de prod.
+#
+#   docker compose -f compose.staging.yaml pull
+#   docker compose -f compose.staging.yaml up -d
+#
+# Comme en production, le port n'est exposé que sur la boucle locale :
+# c'est le reverse proxy / SSO qui doit joindre l'application.
+
+services:
+  flowboard-staging:
+    # staging : alias stable de la branche dev.
+    image: ghcr.io/annayia-04/kanban-tce:${FLOWBOARD_TAG:-staging}
+    container_name: flowboard-staging
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4322:4322"
+    volumes:
+      - flowboard-staging-data:/data
+    environment:
+      PORT: 4322
+      KANBAN_DATA_DIR: /data
+      KANBAN_SEED: demo
+      # Recommandé : place le staging derrière le même SSO que la prod.
+      KANBAN_AUTH_MODE: ${KANBAN_AUTH_MODE:-none}
+      KANBAN_AUTH_HEADER: ${KANBAN_AUTH_HEADER:-x-auth-request-email}
+      KANBAN_AUTH_DOMAINS: ${KANBAN_AUTH_DOMAINS:-}
+      KANBAN_LLM_API_KEY: ${KANBAN_LLM_API_KEY:-}
+      KANBAN_LLM_MODEL: ${KANBAN_LLM_MODEL:-}
+
+volumes:
+  flowboard-staging-data:

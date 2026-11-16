@@ -175,16 +175,46 @@ try {
   await sleep(600);
   await shot('06-team.png');
 
+  console.log('qualification (vote)');
+  await evaluate(`document.querySelector('[data-view="votes"]').click()`);
+  await sleep(700);
+  await shot('07-votes.png');
+  const voteRows = await evaluate(`document.querySelectorAll('.vote-row').length`);
+  const beforeVotes = await evaluate(`document.querySelector('.vote-row .vote-counts')?.textContent || ''`);
+  await evaluate(`document.querySelector('.vote-row .vote-btn.for')?.click()`);
+  await sleep(800);
+  const afterVotes = await evaluate(`document.querySelector('.vote-row .vote-counts')?.textContent || ''`);
+  console.log('  US à qualifier:', voteRows, '· compteur:', beforeVotes, '→', afterVotes);
+  if (!voteRows) problems.push('Aucune US dans la vue Qualification');
+  if (voteRows && beforeVotes === afterVotes) problems.push('Le vote ne met pas à jour le compteur');
+
+  console.log('boîte à idées');
+  await evaluate(`document.querySelector('[data-view="ideas"]').click()`);
+  await sleep(700);
+  await shot('07b-ideas.png');
+  const ideaCards = await evaluate(`document.querySelectorAll('.idea-card').length`);
+  const ideaAuthors = await evaluate(`[...document.querySelectorAll('.idea-card .person')].length`);
+  const ideaBefore = await evaluate(`document.querySelector('.idea-card .vote-counts')?.textContent || ''`);
+  await evaluate(`document.querySelector('.idea-card .vote-btn.for')?.click()`);
+  await sleep(800);
+  const ideaAfter = await evaluate(`document.querySelector('.idea-card .vote-counts')?.textContent || ''`);
+  const ideaCreateDisabled = await evaluate(`document.querySelector('[data-act="new-idea"]')?.disabled === true`);
+  console.log('  idées:', ideaCards, '· signées:', ideaAuthors, '· compteur:', ideaBefore, '→', ideaAfter);
+  if (!ideaCards) problems.push('Aucune idée dans la boîte à idées');
+  if (ideaCards && ideaAuthors !== ideaCards) problems.push('Une idée n’affiche pas son auteur');
+  if (ideaCards && ideaBefore === ideaAfter) problems.push('Le vote d’une idée ne met pas à jour le compteur');
+  if (!ideaCreateDisabled) problems.push('Le mode local devrait désactiver « Proposer une idée »');
+
   console.log('dark mode');
   await evaluate(`document.querySelector('[data-act="toggle-theme"]').click()`);
   await evaluate(`document.querySelector('[data-view="board"]').click()`);
   await sleep(600);
-  await shot('07-dark.png');
+  await shot('08-dark.png');
 
   console.log('mobile');
   await send('Emulation.setDeviceMetricsOverride', { width: 420, height: 860, deviceScaleFactor: 1, mobile: true });
   await sleep(500);
-  await shot('08-mobile.png');
+  await shot('09-mobile.png');
 
   if (problems.length) {
     console.log('\nPROBLEMES JS :');
