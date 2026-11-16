@@ -4,7 +4,8 @@ FROM node:22-alpine
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=4321 \
-    KANBAN_DATA_DIR=/data
+    KANBAN_DATA_DIR=/data \
+    KANBAN_SEED=empty
 
 WORKDIR /app
 

@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node scripts/test-formats.mjs && node scripts/test-extract.js && node scripts/test-parse.mjs",
+    "start:prod": "node scripts/start-instance.mjs prod",
+    "start:staging": "node scripts/start-instance.mjs staging",
+    "test": "node scripts/test-formats.mjs && node scripts/test-extract.js && node scripts/test-parse.mjs && node scripts/test-vote.mjs && node scripts/test-suggest.mjs && node scripts/test-basic.mjs && node scripts/test-empty.mjs",
     "test:ui": "node scripts/ui-test.mjs"
   },
   "engines": {

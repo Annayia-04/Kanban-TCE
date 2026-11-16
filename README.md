@@ -73,9 +73,90 @@ C'est le moyen le plus rapide de voir si le fichier a bien été lu (PDF scanné
 - Statistiques par personne (À faire / En cours / Review / Fait).
 
 ### 7. Données
-- Tout est stocké dans `data/db.json` (créé au premier lancement, avec une démo).
+- Tout est stocké dans `data/db.json` (créé au premier lancement, avec une démo en local).
+- En production, `KANBAN_SEED=empty` démarre avec un projet vide (voir **Déployer l'image**).
 - **Export / Import** JSON depuis la barre latérale (sauvegarde, partage, versionnage).
-- Le bouton `…` sur le projet permet de réinitialiser la démo.
+- Le bouton `…` sur le projet permet de réinitialiser la démo (désactivé en production).
+
+---
+
+## Vote d'équipe sur les US sans version
+
+Une user story sans **version** n'est pas encore qualifiée : on ne sait pas si elle part en v1,
+v2 ou plus tard. L'écran **Qualification** (barre latérale) permet à l'équipe de trancher par un
+vote anonyme :
+
+- **Pour** ajoute une voix au compteur « pour », **Contre** au compteur « contre » ;
+- le **score** affiché est `pour − contre` ; la file est triée du score le plus haut au plus bas ;
+- les compteurs sont **anonymes** (aucun compte, aucun vote nominatif) et partagés par toute
+  l'équipe — chaque clic compte ;
+- **Qualifier en…** attribue une version : l'US sort du vote et rejoint le backlog ;
+- une US déjà qualifiée (version assignée) ne peut plus recevoir de votes : l'API répond `409` ;
+- l'icône ↻ remet les compteurs à zéro.
+
+Le vote est aussi disponible dans la fiche d'une US (drawer), et le score apparaît sur les cartes
+du tableau ainsi que dans la colonne *Version* du backlog tant que l'US n'est pas qualifiée.
+
+---
+
+## Suggestions signées et boîte à idées
+
+Le vote reste **anonyme**, mais tout ce qui est *écrit* par un membre est **signé** : c'est
+l'identité transmise par le SSO (en-tête email) qui fait foi. Deux endroits pour proposer :
+
+### 1. Suggestions sur une US existante
+
+Dans la fiche d'une US (drawer, y compris depuis l'écran **Qualification**), un bloc
+**Suggestions** liste les remarques de l'équipe, chacune avec son auteur, sa date et son texte :
+
+- tout membre connecté peut ajouter une suggestion (3 à 1000 caractères, 50 maximum par US) ;
+- **seul l'auteur peut supprimer sa propre suggestion** — le lien *Supprimer* n'apparaît que sur
+  les siennes, et l'API répond `403` sinon ;
+- les suggestions restent visibles après la qualification de l'US (elles documentent la décision).
+
+Un compteur 💬 sur la ligne de vote indique le nombre de suggestions.
+
+### 2. Boîte à idées
+
+L'écran **Idées** (barre latérale) sert aux US qui n'existent pas encore :
+
+- **Proposer une idée** : titre + détail, signés de l'auteur ;
+- l'équipe **vote pour/contre** avec les mêmes compteurs anonymes que les US (score `pour − contre`,
+  tri par score) ;
+- **Promouvoir** transforme l'idée en user story **sans version** (elle arrive en Qualification,
+  taguée `idée`), avec l'auteur de l'idée comme propriétaire ; une idée ne peut être promue qu'une
+  fois et son vote est alors clos (`409`) ;
+- **seul l'auteur peut supprimer son idée** (ses votes partent avec).
+
+Si l'US issue d'une idée est supprimée, l'idée redevient ouverte et votable.
+
+### 3. Qui peut supprimer une US ?
+
+Chaque US créée porte l'email de son auteur (`createdBy`) : création manuelle, import de CR ou
+promotion d'idée. La règle est appliquée **côté serveur** :
+
+| Cas | Suppression |
+|---|---|
+| US créée par moi | ✅ oui |
+| US créée par un autre membre | ❌ `403` (bouton désactivé dans l'interface) |
+| US sans auteur (démo, données importées avant cette version) | ✅ par tout le monde |
+
+La modification (titre, statut, version…) reste ouverte à toute l'équipe.
+
+### 4. Mode local (sans SSO)
+
+Sans identité, l'application reste utilisable en **consultation** : les suggestions et les idées
+sont visibles avec leurs auteurs, mais les formulaires sont remplacés par un rappel
+« Connecte-toi via le SSO… » et les boutons *Proposer / Promouvoir / Supprimer* sont désactivés.
+Le vote pour/contre, lui, continue de fonctionner puisqu'il est anonyme.
+
+Pour tester en local, lance l'application en mode proxy derrière un petit proxy qui injecte
+l'en-tête (voir **Déploiement derrière un SSO**) :
+
+```bash
+KANBAN_AUTH_MODE=proxy KANBAN_AUTH_DOMAINS=studio.fr npm start
+# puis, via le proxy : x-auth-request-email: marie@studio.fr
+```
 
 ---
 
@@ -106,12 +187,14 @@ Le moteur actif est affiché en bas de la barre latérale.
 | `PORT` | `4321` | Port HTTP |
 | `HOST` | `127.0.0.1` | Mettre `0.0.0.0` pour exposer sur le réseau local |
 | `KANBAN_DATA_DIR` | `./data` | Dossier de stockage |
+| `KANBAN_SEED` | `demo` (image Docker : `empty`) | Données du premier lancement : `demo` ou `empty` (production) |
 | `KANBAN_LLM_API_KEY` | — | Clé API du fournisseur |
 | `KANBAN_LLM_BASE_URL` | `https://api.openai.com/v1` | Endpoint compatible OpenAI |
 | `KANBAN_LLM_MODEL` | `gpt-4o-mini` | Modèle utilisé |
-| `KANBAN_AUTH_MODE` | `none` | `proxy` pour exiger un utilisateur SSO (voir ci-dessous) |
+| `KANBAN_AUTH_MODE` | `none` | `none`, `proxy` (SSO) ou `basic` (secours sans SSO) |
 | `KANBAN_AUTH_HEADER` | `x-auth-request-email` | En-tête posé par le proxy d'authentification |
 | `KANBAN_AUTH_DOMAINS` | — | Domaines autorisés, séparés par des virgules (`studio.fr,autre.fr`) |
+| `KANBAN_BASIC_USERS` | — | Comptes du mode `basic` : `email:motdepasse,email:motdepasse` |
 
 ---
 
@@ -175,6 +258,28 @@ KANBAN_AUTH_MODE=proxy KANBAN_AUTH_HEADER=cf-access-authenticated-user-email npm
 Sans `KANBAN_AUTH_MODE`, l'application reste **ouverte** : c'est le mode par défaut pour un usage
 local, à ne pas utiliser en production.
 
+### 5. Mode `basic` (secours sans proxy SSO)
+
+Si tu n'as pas encore de SSO mais que l'application doit être en ligne, `KANBAN_AUTH_MODE=basic`
+protège l'accès par une authentification HTTP Basic, avec **un compte par membre** :
+
+```bash
+KANBAN_AUTH_MODE=basic \
+KANBAN_BASIC_USERS='marie@studio.fr:motdepasse1,thomas@studio.fr:motdepasse2' \
+KANBAN_AUTH_DOMAINS=studio.fr \
+npm start
+```
+
+- l'**email est l'identité** : suggestions, idées et propriété des US fonctionnent exactement comme
+  avec le SSO (l'utilisateur voit son nom dans la barre latérale) ;
+- le navigateur affiche sa fenêtre de connexion native (challenge `WWW-Authenticate`), il n'y a
+  pas d'écran de login à coder ;
+- `KANBAN_AUTH_DOMAINS` filtre les emails autorisés ;
+- en cas d'absence de comptes configurés, l'application répond `503`.
+
+> C'est un mode de transition : pas de MFA, pas de révocation centralisée, mots de passe partagés
+> dans une variable d'environnement. Dès qu'un proxy SSO est disponible, passe en `proxy`.
+
 ---
 
 ## CI / CD
@@ -185,8 +290,8 @@ local, à ne pas utiliser en production.
 
 | Job | Contenu |
 |---|---|
-| **Moteur & formats** | `npm test` sur Node 18, 20 et 22 : extraction (13 formats de CR), lecture `.docx`/`.pdf`, assertions sur les résultats |
-| **Parcours UI** | démarre le serveur, puis Chrome headless rejoue le parcours complet (tableau, drawer, backlog, analyse, diagnostic, thème sombre, mobile) et échoue à la moindre erreur JS |
+| **Moteur & formats** | `npm test` sur Node 18, 20 et 22 : extraction (13 formats de CR), lecture `.docx`/`.pdf`, API vote / suggestions / idées, mode production vide |
+| **Parcours UI** | démarre le serveur, puis Chrome headless rejoue le parcours complet (tableau, drawer, backlog, analyse, diagnostic, qualification, idées, thème sombre, mobile) et échoue à la moindre erreur JS |
 
 ### Livraison continue (`.github/workflows/docker.yml`)
 
@@ -195,6 +300,7 @@ local, à ne pas utiliser en production.
 ```
 ghcr.io/annayia-04/kanban-tce:main    # dernière version de main
 ghcr.io/annayia-04/kanban-tce:dev     # dernière version de dev
+ghcr.io/annayia-04/kanban-tce:staging # image de staging (branche dev)
 ghcr.io/annayia-04/kanban-tce:sha-…   # commit précis
 ghcr.io/annayia-04/kanban-tce:1.2.3   # release (v1.2.3)
 ghcr.io/annayia-04/kanban-tce:1.2     # dernière 1.2.x
@@ -227,25 +333,110 @@ marquée pré-release et ne met pas à jour `latest`.
 
 ### Déployer l'image
 
+L'image publiée démarre **sans données de démonstration** (`KANBAN_SEED=empty`) : c'est la version
+de production. Le mode démo reste disponible avec `KANBAN_SEED=demo` (c'est ce que fait le
+staging).
+
 ```bash
+# production — projet vide, port 4321
 docker compose pull
 docker compose up -d
+
+# staging — démo complète, port 4322, volume séparé
+docker compose -f compose.staging.yaml pull
+docker compose -f compose.staging.yaml up -d
 ```
 
-`compose.yaml` monte un volume `flowboard-data` sur `/data` et n'expose le port que sur
-`127.0.0.1:4321` — le proxy d'authentification reste devant (voir la section SSO).
+Pour tester les deux modes **sans Docker** (dossiers de données séparés, aucun risque pour la
+démo locale) :
+
+```bash
+npm run start:prod      # http://127.0.0.1:4321 — projet vide, données dans data-prod/
+npm run start:staging   # http://127.0.0.1:4322 — démo, données dans data-staging/
+```
+
+| | Production (`compose.yaml`) | Staging (`compose.staging.yaml`) |
+|---|---|---|
+| Image | `main` / release | `staging` (branche `dev`) |
+| Premier lancement | **aucune donnée** (`KANBAN_SEED=empty`) | démo complète (`KANBAN_SEED=demo`) |
+| Réinitialisation démo | refusée (`403`) | bouton actif |
+| Port local | `127.0.0.1:4321` | `127.0.0.1:4322` |
+| Volume | `flowboard-data` | `flowboard-staging-data` |
+
+En production, les boutons **Réinitialiser la démo** et **Charger l'exemple** sont masqués, et
+`POST /api/reset` répond `403` : les données réelles ne peuvent pas être écrasées par la démo.
+
+Les données vivent dans le volume `/data` (`db.json`). Conséquences pour l'hébergement :
+
+- **une seule instance** doit écrire dans le volume (pas de scale horizontal) ;
+- le volume doit être **persistant**, sinon tout est perdu au redéploiement ;
+- sauvegarde = export JSON depuis la barre latérale, ou copie du volume.
+
+#### Où héberger ?
+
+1. **VPS + Docker Compose** (recommandé) : 2 Go de RAM suffisent, un nom de domaine, HTTPS via
+   Caddy/nginx et le SSO via oauth2-proxy. Les deux fichiers compose peuvent cohabiter sur la
+   même machine (ports 4321 et 4322) derrière deux domaines (`kanban.…` et `staging.kanban.…`).
+2. **PaaS avec disque persistant** (Render, Railway, Fly.io…) : déploie l'image
+   `ghcr.io/annayia-04/kanban-tce:main`, monte un volume sur `/data`, garde **1 instance** et
+   pointe le healthcheck sur `/healthz`. Ajoute les variables `KANBAN_AUTH_MODE=proxy`, etc.
+3. **Serveur maison + Cloudflare Tunnel** : simple pour une équipe, l'accès restant protégé par
+   Cloudflare Access.
+
+À éviter : les plateformes **serverless** (Vercel, Netlify Functions…) — l'application écrit un
+fichier JSON et garde l'état en mémoire, il lui faut un disque persistant et un processus unique.
+
+#### Render (blueprint fourni)
+
+`render.yaml` décrit les **deux** services : `flowboard` (prod, `KANBAN_SEED=empty`) et
+`flowboard-staging` (branche `dev`, `KANBAN_SEED=demo`), chacun avec un disque de 1 Go.
+
+1. Pousser le dépôt sur GitHub avec les branches `main` et `dev`.
+2. Render → **New → Blueprint**, choisir le dépôt : Render lit `render.yaml`.
+3. Renseigner les variables secrètes demandées :
+   - `KANBAN_BASIC_USERS` = `marie@studio.fr:motdepasse1,thomas@studio.fr:motdepasse2`
+   - `KANBAN_AUTH_DOMAINS` = `studio.fr`
+4. **Apply** : l'URL de prod ressemble à `https://flowboard.onrender.com`, le staging à
+   `https://flowboard-staging.onrender.com`. HTTPS et le domaine `onrender.com` sont fournis.
+5. Vérifier `https://…/healthz` → `{"ok":true,…}`.
+
+> Les disques Render nécessitent le plan **Starter** (environ 7 $/service/mois). Sans disque,
+> `db.json` est perdu à chaque redéploiement.
+
+#### Railway (Dockerfile fourni)
+
+1. **New Project → Deploy from GitHub repo** : Railway détecte le `Dockerfile` (et `railway.json`).
+2. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=basic`, `KANBAN_BASIC_USERS=…`,
+   `KANBAN_AUTH_DOMAINS=…`, `KANBAN_DATA_DIR=/data`.
+3. **Volume** → monter sur `/data` (1 Go suffit).
+4. **Settings → Networking → Generate Domain** : HTTPS fourni, aucune configuration DNS.
+5. Staging : dupliquer le service, le brancher sur `dev`, passer `KANBAN_SEED=demo` et utiliser un
+   volume séparé.
+
+Dans les deux cas, l'accès est protégé par le mode `basic` tant qu'il n'y a ni domaine ni SSO :
+le navigateur demande l'email et le mot de passe configurés dans `KANBAN_BASIC_USERS`. Ajoute un
+domaine et un proxy SSO plus tard, sans changer les données.
+
+> ⚠️ Le staging contient des données de démo et autorise leur réinitialisation : ne l'expose pas
+> publiquement sans authentification. Le plus simple est de le placer derrière le même SSO que la
+> production, avec un domaine séparé.
 
 ### Déploiement automatique (optionnel)
 
 Le job `deploy` du workflow Docker ne s'active que si la variable de dépôt `DEPLOY_HOST` existe.
 Il se connecte en SSH et exécute `docker compose pull && docker compose up -d` sur le serveur.
+Le job `deploy-staging` fait de même sur la branche `dev`, avec `compose.staging.yaml`.
 
 | Type | Nom | Rôle |
 |---|---|---|
-| Variable | `DEPLOY_HOST` | Hôte SSH (active le job) |
+| Variable | `DEPLOY_HOST` | Hôte SSH de production (active le job) |
 | Variable | `DEPLOY_USER` | Utilisateur SSH (défaut `deploy`) |
 | Variable | `DEPLOY_PATH` | Dossier du `compose.yaml` (défaut `/opt/flowboard`) |
 | Secret | `DEPLOY_SSH_KEY` | Clé privée SSH autorisée sur le serveur |
+| Variable | `STAGING_HOST` | Hôte SSH du staging (active le job sur `dev`) |
+| Variable | `STAGING_USER` | Utilisateur SSH du staging (défaut `deploy`) |
+| Variable | `STAGING_PATH` | Dossier du `compose.staging.yaml` (défaut `/opt/flowboard-staging`) |
+| Secret | `STAGING_SSH_KEY` | Clé privée SSH du staging |
 
 Sans ces réglages, le pipeline reste purement CI + publication d'image.
 
@@ -260,13 +451,16 @@ lib/extract.js         Moteur d'extraction local (français / anglais)
 lib/llm.js             Couche IA optionnelle
 lib/office.js          Extraction de texte .docx / .odt / .pdf
 lib/zip.js             Lecteur ZIP minimal (pour .docx/.odt)
-lib/seed.js            Données de démonstration
+lib/seed.js            Données de démonstration + état vide de production
 public/                Interface (HTML/CSS/JS vanilla, sans build)
 scripts/               Tests du moteur et de l'interface (Chrome headless)
 exemples/              Comptes rendus d'exemple
 data/db.json           Données (générées)
-Dockerfile             Image de production
-compose.yaml           Déploiement (volume + variables SSO)
+Dockerfile             Image de production (démarre vide)
+compose.yaml           Production (volume + variables SSO)
+compose.staging.yaml   Staging (démo, port 4322, volume séparé)
+render.yaml            Blueprint Render (prod + staging)
+railway.json           Configuration Railway (Dockerfile + healthcheck)
 .github/workflows/     CI (tests) et CD (image GHCR)
 ```
 
@@ -281,7 +475,13 @@ compose.yaml           Déploiement (volume + variables SSO)
 | `GET`/`DELETE` | `/api/reports/:id` | Détail / suppression |
 | `GET` | `/api/reports/:id/diagnose` | Journal d'analyse (lignes retenues / écartées + raisons) |
 | `POST`/`PATCH`/`DELETE` | `/api/stories[/:id]` | User stories |
+| `POST` | `/api/stories/:id/vote` | Vote pour/contre sur une US sans version — `{ value: 1 \| -1 \| 0 }` |
+| `POST` | `/api/stories/:id/suggestions` | Suggestion signée sur une US — `{ text }` (SSO requis) |
+| `DELETE` | `/api/stories/:id/suggestions/:sid` | Supprime sa suggestion (SSO requis) |
 | `POST` | `/api/stories/reorder` | `{ status, ids }` |
+| `POST`/`DELETE` | `/api/ideas[/:id]` | Boîte à idées signée (SSO requis) |
+| `POST` | `/api/ideas/:id/vote` | Vote pour/contre sur une idée — `{ value: 1 \| -1 \| 0 }` |
+| `POST` | `/api/ideas/:id/promote` | Promeut l'idée en US sans version (SSO requis) |
 | `POST`/`PATCH`/`DELETE` | `/api/members[/:id]` | Équipe |
 | `POST`/`DELETE` | `/api/versions[/:id]` | Versions |
 | `GET` | `/api/export` · `POST /api/import` | Sauvegarde / restauration |
@@ -300,7 +500,7 @@ compose.yaml           Déploiement (volume + variables SSO)
 ## Tests
 
 ```bash
-npm test           # moteur d'extraction (13 formats) + .docx/.pdf, avec assertions
+npm test           # extraction (13 formats) + .docx/.pdf + API vote, suggestions, idées et droits, avec assertions
 npm run test:ui    # parcours complet dans Chrome headless (serveur démarré à côté)
 ```
 
@@ -310,5 +510,7 @@ Les tests sortent en code 1 au moindre échec : ils servent aussi de garde-fous 
 
 - Pas d'authentification intégrée : l'outil est prévu pour un usage local, un réseau de confiance,
   ou derrière le SSO d'entreprise (voir **Déploiement derrière un SSO**).
+- L'image Docker démarre **vide** (production) ; `KANBAN_SEED=demo` restaure le jeu de démo, et
+  le staging l'active par défaut.
 - Les données ne quittent la machine que si tu actives un modèle IA distant.
 - `npm start` suffit : aucune étape de build, aucun `npm install`.

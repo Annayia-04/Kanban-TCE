@@ -48,6 +48,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=Flowboard
@@ -85,3 +86,25 @@ jobs:
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/id_ed25519 "${DEPLOY_USER:-deploy}@$DEPLOY_HOST" \
             "cd ${DEPLOY_PATH:-/opt/flowboard} && docker compose pull && docker compose up -d --remove-orphans"
+
+  deploy-staging:
+    name: Déploiement staging (SSH, optionnel)
+    needs: build
+    # Ne s'exécute que sur dev et si la variable STAGING_HOST est configurée.
+    if: github.ref == 'refs/heads/dev' && vars.STAGING_HOST != ''
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Mettre à jour le conteneur de staging
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          DEPLOY_HOST: ${{ vars.STAGING_HOST }}
+          DEPLOY_USER: ${{ vars.STAGING_USER }}
+          DEPLOY_PATH: ${{ vars.STAGING_PATH }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_ed25519 "${DEPLOY_USER:-deploy}@$DEPLOY_HOST" \
+            "cd ${DEPLOY_PATH:-/opt/flowboard-staging} && docker compose -f compose.staging.yaml pull && docker compose -f compose.staging.yaml up -d --remove-orphans"

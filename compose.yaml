@@ -18,6 +18,8 @@ services:
       - flowboard-data:/data
     environment:
       KANBAN_DATA_DIR: /data
+      # Production : aucun jeu de démonstration au premier lancement.
+      KANBAN_SEED: ${KANBAN_SEED:-empty}
       # SSO : mets KANBAN_AUTH_MODE=proxy dans un fichier .env en production.
       KANBAN_AUTH_MODE: ${KANBAN_AUTH_MODE:-none}
       KANBAN_AUTH_HEADER: ${KANBAN_AUTH_HEADER:-x-auth-request-email}
