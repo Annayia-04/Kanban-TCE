@@ -372,6 +372,10 @@ Les données vivent dans le volume `/data` (`db.json`). Conséquences pour l'hé
 - le volume doit être **persistant**, sinon tout est perdu au redéploiement ;
 - sauvegarde = export JSON depuis la barre latérale, ou copie du volume.
 
+L'image prépare elle-même le volume `/data` (droits de l'utilisateur `node`) avant de lancer
+l'application : elle fonctionne donc aussi avec un volume monté par une plateforme (Railway,
+Render) sans réglage de permissions.
+
 #### Où héberger ?
 
 1. **VPS + Docker Compose** (recommandé) : 2 Go de RAM suffisent, un nom de domaine, HTTPS via
@@ -406,12 +410,14 @@ fichier JSON et garde l'état en mémoire, il lui faut un disque persistant et u
 #### Railway (Dockerfile fourni)
 
 1. **New Project → Deploy from GitHub repo** : Railway détecte le `Dockerfile` (et `railway.json`).
-2. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=basic`, `KANBAN_BASIC_USERS=…`,
-   `KANBAN_AUTH_DOMAINS=…`, `KANBAN_DATA_DIR=/data`.
-3. **Volume** → monter sur `/data` (1 Go suffit).
-4. **Settings → Networking → Generate Domain** : HTTPS fourni, aucune configuration DNS.
-5. Staging : dupliquer le service, le brancher sur `dev`, passer `KANBAN_SEED=demo` et utiliser un
-   volume séparé.
+2. **Settings → Source** : choisis la branche à déployer (`main` en prod, `dev` en staging).
+3. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=basic`, `KANBAN_BASIC_USERS=…`,
+   `KANBAN_AUTH_DOMAINS=…`, `KANBAN_DATA_DIR=/data`. Ne fixe pas `PORT` : Railway le fournit.
+4. **Volume** → monter sur `/data` (1 Go suffit).
+5. **Settings → Networking → Generate Domain** : HTTPS fourni, aucune configuration DNS.
+6. Staging : **New Environment → staging** (ou dupliquer le service), brancher `dev`, passer
+   `KANBAN_SEED=demo` et utiliser un volume distinct (les volumes sont propres à chaque
+   environnement).
 
 Dans les deux cas, l'accès est protégé par le mode `basic` tant qu'il n'y a ni domaine ni SSO :
 le navigateur demande l'email et le mot de passe configurés dans `KANBAN_BASIC_USERS`. Ajoute un
