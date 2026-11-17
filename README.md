@@ -306,14 +306,86 @@ location / {
 }
 ```
 
-### 4. Exemple Cloudflare Access
+### 4. Cloudflare Access (sans SSO Google)
 
-Cloudflare Access ajoute `Cf-Access-Authenticated-User-Email` ; configure le tunnel vers
-l'application et lance :
+Utile quand l'organisation ne permet pas de créer un client OAuth Google : Cloudflare
+authentifie les utilisateurs par **code à usage unique envoyé par email**, sans toucher au
+domaine. Le nom d'hôte public est un sous-domaine que tu contrôles (par exemple
+`kanban.annay-ia.pro`), pas l'adresse `*.up.railway.app`.
+
+**Principe**
+
+```
+navigateur → Cloudflare Access (code par email) → tunnel → kanban-tce.railway.internal:8080
+```
+
+Le point d'entrée est un **tunnel** : l'application n'a aucun port public, donc l'en-tête
+d'identité ne peut pas être forgé. C'est ce qui distingue cette approche d'un simple reverse
+proxy.
+
+**1. Mettre le domaine sur Cloudflare**
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → *Add a site* → le domaine (plan gratuit).
+2. Cloudflare importe les enregistrements existants (A, MX, TXT/SPF). **Vérifie-les avant de
+   continuer** : un site web existant et surtout les enregistrements MX (messagerie) doivent
+   être repris à l'identique.
+3. Cloudflare fournit deux serveurs de noms : remplace-les chez le registrar (OVH : *Espace
+   client → Nom de domaine → Serveurs DNS*). La propagation prend de quelques minutes à 24 h.
+4. Après propagation, ajoute un enregistrement `kanban` de type **AAAA** vers `100::` et active
+   le proxy (nuage orange) : le tunnel s'en occupe, aucune IP n'est nécessaire.
+
+**2. Créer le tunnel**
+
+1. Zero Trust → **Networks → Tunnels → Create a tunnel** → type *Cloudflared* → nom `flowboard`.
+2. Copie le **jeton** affiché (`eyJh…`).
+3. Onglet **Public Hostname → Add a public hostname** :
+   - Subdomain : `kanban`
+   - Domain : le domaine
+   - Service : **HTTP** → `kanban-tce.railway.internal:8080`
+
+**3. Déployer le connecteur sur Railway**
 
 ```bash
-KANBAN_AUTH_MODE=proxy KANBAN_AUTH_HEADER=cf-access-authenticated-user-email npm start
+railway add --service cloudflared
+railway variable set TUNNEL_TOKEN=… --service cloudflared --skip-deploys
+railway up cloudflared --service cloudflared
 ```
+
+Le fichier `cloudflared/Dockerfile` du dépôt lance `cloudflared tunnel run` en lisant
+`TUNNEL_TOKEN`. Le service n'a ni volume ni domaine public.
+
+**4. Créer l'application Access**
+
+1. Zero Trust → **Access → Applications → Add an application → Self-hosted**.
+2. Application domain : `kanban` + ton domaine.
+3. Policy : *Action* **Allow**, *Include* → **Emails ending in** `@edu.oreegami.com`
+   (ou *Emails* pour une liste nominative).
+4. Méthode de connexion : **One-time PIN** (aucun compte à créer, le code arrive par email).
+
+**5. Verrouiller l'accès direct à Railway**
+
+```bash
+railway domain delete <id-du-domaine-service>
+```
+
+Tant que `*.up.railway.app` répond, on peut contourner Cloudflare et forger l'en-tête
+`Cf-Access-Authenticated-User-Email`. Supprime le domaine public du service Kanban : le seul
+chemin d'accès restera le tunnel.
+
+**6. Configurer l'application**
+
+```bash
+railway variable set KANBAN_AUTH_MODE=proxy \
+  KANBAN_AUTH_HEADER=cf-access-authenticated-user-email \
+  KANBAN_AUTH_DOMAINS=edu.oreegami.com \
+  KANBAN_PUBLIC_URL=https://kanban.annay-ia.pro
+```
+
+Puis redéploie. `KANBAN_AUTH_DOMAINS` reste une seconde barrière : même authentifié par
+Cloudflare, un email hors domaine reçoit une erreur 403.
+
+> ⚠️ En mode `proxy`, l'application fait confiance à l'en-tête. Elle ne doit être joignable que
+> par le tunnel (réseau privé Railway ou réseau Docker), jamais directement sur Internet.
 
 ### 5. Autres proxys
 
@@ -498,6 +570,10 @@ construire. C'est la voie la plus fiable (aucun build, donc aucune validation de
 6. Staging : **New Environment → staging**, image `ghcr.io/annayia-04/kanban-tce:staging`,
    `KANBAN_SEED=demo`, volume et domaine distincts (les volumes sont propres à chaque
    environnement).
+
+> **Variante Cloudflare Access** : dans ce cas, ne génère pas de domaine Railway public. Déploie
+> plutôt le connecteur décrit dans `cloudflared/`, publie `kanban.<domaine>` via le tunnel et
+> configure `KANBAN_AUTH_MODE=proxy`. Le domaine public Railway doit être supprimé.
 
 Pour construire depuis le dépôt à la place (branche `main`/`dev`), Railway détecte le
 `Dockerfile` à la racine. Vérifie alors que **Settings → Source → Root Directory est vide** :
