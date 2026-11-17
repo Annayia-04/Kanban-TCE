@@ -244,6 +244,14 @@ h1, h2, h3, h4, p { margin: 0; }
 }
 .side-user svg { width: 13px; height: 13px; flex: 0 0 13px; }
 .side-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-logout {
+  margin-left: auto; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.side-logout:hover { background: var(--border); color: var(--text); }
+.side-logout svg { width: 12px; height: 12px; }
 .engine-badge {
   display: flex; align-items: center; gap: 7px;
   font-size: 11.5px;

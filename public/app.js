@@ -271,7 +271,11 @@ function renderSidebar() {
     <div class="side-foot">
       ${
         d.meta?.auth?.user
-          ? `<div class="side-user" title="Utilisateur authentifié via le SSO">${icon('users')}<span>${esc(d.meta.auth.user)}</span></div>`
+          ? `<div class="side-user" title="Utilisateur authentifié">${icon('users')}<span>${esc(d.meta.auth.user)}</span>${
+              d.meta.auth.mode === 'google'
+                ? `<button class="side-logout" data-act="logout" title="Se déconnecter">${icon('close')}</button>`
+                : ''
+            }</div>`
           : ''
       }
       <button class="engine-badge" data-act="engine-info" title="Moteur d’extraction">
@@ -1969,6 +1973,9 @@ function bindGlobalEvents() {
       case 'diagnose':
       case 'report-diagnose':
         openDiagnostic(id);
+        break;
+      case 'logout':
+        window.location.href = '/auth/logout';
         break;
       case 'review-back':
         go('reports');

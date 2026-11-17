@@ -150,10 +150,14 @@ sont visibles avec leurs auteurs, mais les formulaires sont remplacés par un ra
 « Connecte-toi via le SSO… » et les boutons *Proposer / Promouvoir / Supprimer* sont désactivés.
 Le vote pour/contre, lui, continue de fonctionner puisqu'il est anonyme.
 
-Pour tester en local, lance l'application en mode proxy derrière un petit proxy qui injecte
-l'en-tête (voir **Déploiement derrière un SSO**) :
+Pour tester en local, deux possibilités :
 
 ```bash
+# 1. SSO Google réel (ajoute http://localhost:4321/auth/callback dans le client OAuth)
+KANBAN_AUTH_MODE=google GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… \
+KANBAN_AUTH_DOMAINS=studio.fr KANBAN_SESSION_SECRET=dev-secret npm start
+
+# 2. Mode proxy derrière un petit proxy qui injecte l'en-tête
 KANBAN_AUTH_MODE=proxy KANBAN_AUTH_DOMAINS=studio.fr npm start
 # puis, via le proxy : x-auth-request-email: marie@studio.fr
 ```
@@ -191,21 +195,86 @@ Le moteur actif est affiché en bas de la barre latérale.
 | `KANBAN_LLM_API_KEY` | — | Clé API du fournisseur |
 | `KANBAN_LLM_BASE_URL` | `https://api.openai.com/v1` | Endpoint compatible OpenAI |
 | `KANBAN_LLM_MODEL` | `gpt-4o-mini` | Modèle utilisé |
-| `KANBAN_AUTH_MODE` | `none` | `none`, `proxy` (SSO) ou `basic` (secours sans SSO) |
+| `KANBAN_AUTH_MODE` | `none` | `none`, `google` (SSO Google intégré), `proxy` (SSO par en-tête) ou `basic` (secours sans SSO) |
 | `KANBAN_AUTH_HEADER` | `x-auth-request-email` | En-tête posé par le proxy d'authentification |
 | `KANBAN_AUTH_DOMAINS` | — | Domaines autorisés, séparés par des virgules (`studio.fr,autre.fr`) |
 | `KANBAN_BASIC_USERS` | — | Comptes du mode `basic` : `email:motdepasse,email:motdepasse` |
+| `GOOGLE_CLIENT_ID` | — | Client OAuth Google (mode `google`) |
+| `GOOGLE_CLIENT_SECRET` | — | Secret du client OAuth Google (mode `google`) |
+| `KANBAN_SESSION_SECRET` | aléatoire par démarrage | Clé de signature des sessions Google — **à fixer en production** |
+| `KANBAN_PUBLIC_URL` | déduite de la requête | URL publique exacte, sans slash final (`https://kanban.exemple.fr`) |
 
 ---
 
 ## Déploiement derrière un SSO
 
-L'application n'embarque pas de gestion de comptes : elle est faite pour être placée **derrière
-le SSO de l'entreprise** (Azure AD/Entra ID, Google Workspace, Okta, Keycloak…), via un proxy
-d'authentification. Le proxy authentifie l'utilisateur puis transmet son identité dans un en-tête
-HTTP ; Flowboard refuse toute requête sans cet en-tête.
+Deux options, selon l'infrastructure :
 
-### 1. Mode proxy (recommandé)
+- le **SSO Google intégré** (`KANBAN_AUTH_MODE=google`) : rien à installer en plus, idéal sur un
+  PaaS comme Railway ou Render ;
+- un **proxy d'authentification** (`KANBAN_AUTH_MODE=proxy`) pour les autres fournisseurs
+  d'identité (Azure AD/Entra ID, Okta, Keycloak…) ou si l'entreprise impose déjà un proxy.
+
+Dans les deux cas, l'identité (l'email) transmise par le fournisseur fait foi : c'est elle qui
+signe les idées et les user stories. Aucune requête non authentifiée n'est acceptée et
+`GET /healthz` reste public pour les sondes.
+
+### 1. SSO Google intégré (mode `google`)
+
+L'application gère elle-même le flux **OAuth 2.0 / OpenID Connect** : redirection vers Google,
+vérification locale de la signature de l'`id_token` avec les clés JWKS de Google (aucune
+dépendance npm) et session signée HMAC-SHA256 dans un cookie `HttpOnly`.
+
+**Créer le client OAuth dans Google Cloud**
+
+1. [Google Cloud Console → Identifiants](https://console.cloud.google.com/apis/credentials) :
+   créer ou choisir un projet.
+2. **APIs et services → Écran de consentement OAuth** : type **Interne** avec Google Workspace
+   (seuls les comptes du domaine peuvent se connecter), sinon **Externe** et ajoute les comptes
+   autorisés en testeurs tant que l'application n'est pas publiée.
+3. **Créer des identifiants → ID client OAuth → Application Web**.
+4. **URI de redirection autorisés** : `https://<domaine>/auth/callback`
+   (par exemple `https://kanban-tce.up.railway.app/auth/callback`). Pour tester en local, ajoute
+   aussi `http://localhost:4321/auth/callback`.
+5. Note `GOOGLE_CLIENT_ID` et `GOOGLE_CLIENT_SECRET`.
+
+**Configuration**
+
+```bash
+KANBAN_AUTH_MODE=google \
+GOOGLE_CLIENT_ID=….apps.googleusercontent.com \
+GOOGLE_CLIENT_SECRET=… \
+KANBAN_SESSION_SECRET=$(openssl rand -hex 32) \
+KANBAN_AUTH_DOMAINS=monentreprise.fr \
+KANBAN_PUBLIC_URL=https://kanban.monentreprise.fr \
+npm start
+```
+
+| Variable | Rôle |
+|---|---|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Identifiants du client OAuth (obligatoires) |
+| `KANBAN_SESSION_SECRET` | Clé de signature des cookies. **À fixer en production** : sinon un secret aléatoire est tiré à chaque démarrage et tout le monde est déconnecté au redéploiement. |
+| `KANBAN_PUBLIC_URL` | URL publique exacte, sans slash final : sert à construire `redirect_uri`. Sinon l'application la déduit de `X-Forwarded-Proto` / `Host`. |
+| `KANBAN_AUTH_DOMAINS` | Domaines autorisés, testés sur l'email **et** sur le claim `hd` de Google Workspace. Vide = tout compte Google. |
+
+**Fonctionnement**
+
+| Route | Rôle |
+|---|---|
+| `GET /auth/login` | Redirige vers Google (`state` + `nonce` signés dans le cookie `fb_oauth`, valable 10 min) |
+| `GET /auth/callback` | Échange le code, vérifie l'`id_token` (RS256 + JWKS, `aud`, `iss`, `exp`, email vérifié), pose la session |
+| `GET /auth/logout` | Efface les cookies et revient à l'accueil |
+
+- Cookie `fb_session` : signé, `HttpOnly`, `SameSite=Lax`, `Secure` dès que l'URL publique est en
+  HTTPS, durée de vie 7 jours.
+- L'email connecté s'affiche en bas de la barre latérale, avec un bouton de déconnexion.
+- Un compte hors domaine reçoit une page 403 explicite.
+
+> ⚠️ Seule l'**URI de redirection** doit correspondre au caractère près (protocole et chemin), sinon
+> Google renvoie `redirect_uri_mismatch`. Aucune « origine JavaScript autorisée » n'est nécessaire :
+> le flux est entièrement côté serveur.
+
+### 2. Mode proxy (autres fournisseurs d'identité)
 
 ```bash
 KANBAN_AUTH_MODE=proxy \
@@ -223,7 +292,7 @@ HOST=0.0.0.0 PORT=4321 npm start
 > proxy doit pouvoir l'atteindre (`127.0.0.1` ou réseau Docker privé). Sinon n'importe qui peut
 > forger l'en-tête.
 
-### 2. Exemple nginx + oauth2-proxy
+### 3. Exemple nginx + oauth2-proxy
 
 ```nginx
 location / {
@@ -237,7 +306,7 @@ location / {
 }
 ```
 
-### 3. Exemple Cloudflare Access
+### 4. Exemple Cloudflare Access
 
 Cloudflare Access ajoute `Cf-Access-Authenticated-User-Email` ; configure le tunnel vers
 l'application et lance :
@@ -246,7 +315,7 @@ l'application et lance :
 KANBAN_AUTH_MODE=proxy KANBAN_AUTH_HEADER=cf-access-authenticated-user-email npm start
 ```
 
-### 4. Autres proxys
+### 5. Autres proxys
 
 | Proxy | En-tête typique |
 |---|---|
@@ -258,7 +327,7 @@ KANBAN_AUTH_MODE=proxy KANBAN_AUTH_HEADER=cf-access-authenticated-user-email npm
 Sans `KANBAN_AUTH_MODE`, l'application reste **ouverte** : c'est le mode par défaut pour un usage
 local, à ne pas utiliser en production.
 
-### 5. Mode `basic` (secours sans proxy SSO)
+### 6. Mode `basic` (secours sans proxy SSO)
 
 Si tu n'as pas encore de SSO mais que l'application doit être en ligne, `KANBAN_AUTH_MODE=basic`
 protège l'accès par une authentification HTTP Basic, avec **un compte par membre** :
@@ -278,7 +347,8 @@ npm start
 - en cas d'absence de comptes configurés, l'application répond `503`.
 
 > C'est un mode de transition : pas de MFA, pas de révocation centralisée, mots de passe partagés
-> dans une variable d'environnement. Dès qu'un proxy SSO est disponible, passe en `proxy`.
+> dans une variable d'environnement. Dès que le client Google est prêt, passe en `google` (ou
+> `proxy` pour un autre fournisseur d'identité).
 
 ---
 
@@ -379,11 +449,12 @@ Render) sans réglage de permissions.
 #### Où héberger ?
 
 1. **VPS + Docker Compose** (recommandé) : 2 Go de RAM suffisent, un nom de domaine, HTTPS via
-   Caddy/nginx et le SSO via oauth2-proxy. Les deux fichiers compose peuvent cohabiter sur la
-   même machine (ports 4321 et 4322) derrière deux domaines (`kanban.…` et `staging.kanban.…`).
+   Caddy/nginx et le SSO Google intégré (ou oauth2-proxy pour un autre fournisseur). Les deux
+   fichiers compose peuvent cohabiter sur la même machine (ports 4321 et 4322) derrière deux
+   domaines (`kanban.…` et `staging.kanban.…`).
 2. **PaaS avec disque persistant** (Render, Railway, Fly.io…) : déploie l'image
    `ghcr.io/annayia-04/kanban-tce:main`, monte un volume sur `/data`, garde **1 instance** et
-   pointe le healthcheck sur `/healthz`. Ajoute les variables `KANBAN_AUTH_MODE=proxy`, etc.
+   pointe le healthcheck sur `/healthz`. Ajoute les variables `KANBAN_AUTH_MODE=google`, etc.
 3. **Serveur maison + Cloudflare Tunnel** : simple pour une équipe, l'accès restant protégé par
    Cloudflare Access.
 
@@ -414,11 +485,16 @@ construire. C'est la voie la plus fiable (aucun build, donc aucune validation de
 
 1. **New → Deploy from Docker Image** (ou *Settings → Source → Docker Image* sur un service
    existant) : `ghcr.io/annayia-04/kanban-tce:main`. Aucun identifiant de registre n'est nécessaire.
-2. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=basic`, `KANBAN_BASIC_USERS=…`,
+2. Variables : `KANBAN_SEED=empty`, `KANBAN_AUTH_MODE=google`, `GOOGLE_CLIENT_ID=…`,
+   `GOOGLE_CLIENT_SECRET=…`, `KANBAN_SESSION_SECRET=…` (32 octets hex, `openssl rand -hex 32`),
    `KANBAN_AUTH_DOMAINS=…`, `KANBAN_DATA_DIR=/data`. Ne fixe pas `PORT` : Railway le fournit.
+   (`KANBAN_AUTH_MODE=basic` + `KANBAN_BASIC_USERS` fonctionne aussi, en attendant le client OAuth.)
 3. **Volume** → monter sur `/data` (1 Go suffit).
 4. **Settings → Deploy → Healthcheck Path** : `/healthz`.
-5. **Settings → Networking → Generate Domain** : HTTPS fourni, aucune configuration DNS.
+5. **Settings → Networking → Generate Domain** : HTTPS fourni, aucune configuration DNS. Note le
+   domaine, ajoute `KANBAN_PUBLIC_URL=https://<domaine>` dans les variables, déclare
+   `https://<domaine>/auth/callback` dans le client OAuth Google, puis redéploie
+   (**Deploy → Redeploy**).
 6. Staging : **New Environment → staging**, image `ghcr.io/annayia-04/kanban-tce:staging`,
    `KANBAN_SEED=demo`, volume et domaine distincts (les volumes sont propres à chaque
    environnement).
@@ -431,9 +507,10 @@ validation ». Le `Dockerfile` ne déclare **pas** `VOLUME` : Railway refuse cet
 uniquement dans le tableau de bord, sur `/data`. Le dépôt ne contient volontairement pas de
 `railway.json` (le *config as code* est déprécié et écraserait les réglages du tableau de bord).
 
-Dans les deux cas, l'accès est protégé par le mode `basic` tant qu'il n'y a ni domaine ni SSO :
-le navigateur demande l'email et le mot de passe configurés dans `KANBAN_BASIC_USERS`. Ajoute un
-domaine et un proxy SSO plus tard, sans changer les données.
+Dans les deux cas, **ne génère le domaine qu'une fois l'authentification configurée**. Sans
+`KANBAN_AUTH_MODE`, l'application est ouverte à quiconque connaît l'URL (les logs de démarrage
+l'annoncent : `Accès : libre (aucune authentification)`). Tu peux passer par le mode `basic` en
+attendant le client OAuth, puis basculer sur `google` sans toucher aux données.
 
 > ⚠️ Le staging contient des données de démo et autorise leur réinitialisation : ne l'expose pas
 > publiquement sans authentification. Le plus simple est de le placer derrière le même SSO que la
@@ -503,6 +580,8 @@ render.yaml            Blueprint Render (prod + staging)
 | `POST`/`DELETE` | `/api/versions[/:id]` | Versions |
 | `GET` | `/api/export` · `POST /api/import` | Sauvegarde / restauration |
 | `POST` | `/api/reset` | Réinitialise la démo |
+| `GET` | `/auth/login` · `/auth/callback` · `/auth/logout` | Connexion Google (mode `google` uniquement) |
+| `GET` | `/healthz` | Sonde de disponibilité (toujours publique) |
 
 ---
 
@@ -517,7 +596,7 @@ render.yaml            Blueprint Render (prod + staging)
 ## Tests
 
 ```bash
-npm test           # extraction (13 formats) + .docx/.pdf + API vote, suggestions, idées et droits, avec assertions
+npm test           # extraction (13 formats) + .docx/.pdf + API vote, suggestions, idées et droits + SSO Google
 npm run test:ui    # parcours complet dans Chrome headless (serveur démarré à côté)
 ```
 
@@ -525,8 +604,9 @@ Les tests sortent en code 1 au moindre échec : ils servent aussi de garde-fous 
 
 ## Notes
 
-- Pas d'authentification intégrée : l'outil est prévu pour un usage local, un réseau de confiance,
-  ou derrière le SSO d'entreprise (voir **Déploiement derrière un SSO**).
+- Authentification : par défaut aucune (usage local ou réseau de confiance). En production, active
+  le SSO Google intégré ou un proxy d'authentification (voir **Déploiement derrière un SSO**) :
+  l'application ne doit jamais être exposée publiquement sans l'un des deux.
 - L'image Docker démarre **vide** (production) ; `KANBAN_SEED=demo` restaure le jeu de démo, et
   le staging l'active par défaut.
 - Les données ne quittent la machine que si tu actives un modèle IA distant.

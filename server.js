@@ -28,6 +28,19 @@ import { makeSeed, MEMBER_COLORS } from './lib/seed.js';
 import { extractFromText, analyzeText, findParticipants } from './lib/extract.js';
 import { extractTextFromFile } from './lib/office.js';
 import { llmExtract, llmInfo } from './lib/llm.js';
+import {
+  googleConfigured,
+  buildAuthUrl,
+  exchangeCode,
+  verifyIdToken,
+  emailAllowed,
+  signSession,
+  verifySession,
+  parseCookies,
+  serializeCookie,
+  SESSION_COOKIE,
+  OAUTH_COOKIE,
+} from './lib/google-auth.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -62,6 +75,154 @@ const BASIC_USERS = String(process.env.KANBAN_BASIC_USERS || '')
 
 const BASIC_REALM = 'Basic realm="Flowboard", charset="UTF-8"';
 
+/* --- Connexion Google (OAuth 2.0 / OpenID Connect) ------------------ */
+// KANBAN_AUTH_MODE=google : redirection vers Google, verification de
+// l'id_token en local (JWKS) et session signee dans un cookie HttpOnly.
+const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || '').trim();
+const GOOGLE_CLIENT_SECRET = String(process.env.GOOGLE_CLIENT_SECRET || '').trim();
+const PUBLIC_URL = String(process.env.KANBAN_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+const SESSION_TTL = 7 * 24 * 3600 * 1000;
+let SESSION_SECRET = String(process.env.KANBAN_SESSION_SECRET || '').trim();
+if (!SESSION_SECRET) {
+  SESSION_SECRET = crypto.randomBytes(32).toString('hex');
+  if (AUTH_MODE === 'google') {
+    console.warn('[auth] KANBAN_SESSION_SECRET absent : les sessions Google seront perdues au redémarrage.');
+  }
+}
+
+const escapeHtml = (value) =>
+  String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+function publicBaseUrl(req) {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || (req.socket.encrypted ? 'https' : 'http');
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || 'localhost').split(',')[0].trim();
+  return `${proto}://${host}`;
+}
+
+function safeNext(value) {
+  const next = String(value || '').trim();
+  return next.startsWith('/') && !next.startsWith('//') ? next : '/';
+}
+
+function htmlPage(res, status, title, message, action = '') {
+  res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' });
+  res.end(`<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<body style="font-family:system-ui;padding:48px;max-width:600px;margin:auto;line-height:1.6">
+<h1 style="font-size:22px">${escapeHtml(title)}</h1>
+<p style="color:#444">${escapeHtml(message)}</p>
+${action}
+</body>`);
+}
+
+function googleReady() {
+  return googleConfigured({ GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET });
+}
+
+/** Cookie de session Google valide, ou null. */
+function googleSession(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const session = verifySession(cookies[SESSION_COOKIE], SESSION_SECRET);
+  if (!session || !session.email) return null;
+  return session;
+}
+
+function handleGoogleLogin(req, res, url) {
+  if (!googleReady()) {
+    return htmlPage(
+      res,
+      503,
+      'SSO Google non configuré',
+      'Définis GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET (puis redémarre le service).'
+    );
+  }
+  const base = publicBaseUrl(req);
+  const state = crypto.randomBytes(16).toString('hex');
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const next = safeNext(url.searchParams.get('next'));
+  const pending = signSession({ s: state, n: nonce, r: next }, SESSION_SECRET, 10 * 60 * 1000);
+  const location = buildAuthUrl({
+    clientId: GOOGLE_CLIENT_ID,
+    redirectUri: `${base}/auth/callback`,
+    state,
+    nonce,
+  });
+  res.writeHead(302, {
+    Location: location,
+    'Cache-Control': 'no-store',
+    'Set-Cookie': serializeCookie(OAUTH_COOKIE, pending, { maxAge: 600, secure: base.startsWith('https://') }),
+  });
+  res.end();
+}
+
+async function handleGoogleCallback(req, res, url) {
+  const base = publicBaseUrl(req);
+  const cookies = parseCookies(req.headers.cookie);
+  const pending = verifySession(cookies[OAUTH_COOKIE], SESSION_SECRET);
+  const clearPending = serializeCookie(OAUTH_COOKIE, '', { maxAge: 0, secure: base.startsWith('https://') });
+
+  const oauthError = url.searchParams.get('error');
+  if (oauthError) {
+    res.writeHead(302, { Location: '/', 'Set-Cookie': clearPending, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+
+  const state = url.searchParams.get('state') || '';
+  const code = url.searchParams.get('code') || '';
+  if (!pending || !state || state !== pending.s) {
+    return htmlPage(res, 400, 'Session de connexion expirée', 'Relance la connexion Google depuis la page d’accueil.', '<p><a href="/auth/login">Se reconnecter</a></p>');
+  }
+  if (!code) return htmlPage(res, 400, 'Connexion incomplète', 'Google n’a pas renvoyé de code d’autorisation.');
+
+  try {
+    const tokens = await exchangeCode({
+      code,
+      clientId: GOOGLE_CLIENT_ID,
+      clientSecret: GOOGLE_CLIENT_SECRET,
+      redirectUri: `${base}/auth/callback`,
+    });
+    const claims = await verifyIdToken(tokens.id_token, { clientId: GOOGLE_CLIENT_ID });
+    if (pending.n && claims.nonce && pending.n !== claims.nonce) {
+      throw new Error('Nonce de connexion invalide.');
+    }
+    if (!emailAllowed(claims.email, claims.hd, AUTH_DOMAINS)) {
+      return htmlPage(
+        res,
+        403,
+        'Compte non autorisé',
+        `${claims.email} n’appartient pas aux domaines autorisés (${AUTH_DOMAINS.join(', ')}).`,
+        '<p><a href="/auth/logout">Changer de compte</a></p>'
+      );
+    }
+    const session = signSession(
+      { email: String(claims.email).toLowerCase(), name: claims.name || '', picture: claims.picture || '' },
+      SESSION_SECRET,
+      SESSION_TTL
+    );
+    res.writeHead(302, {
+      Location: safeNext(pending.r),
+      'Cache-Control': 'no-store',
+      'Set-Cookie': [
+        serializeCookie(SESSION_COOKIE, session, { maxAge: SESSION_TTL / 1000, secure: base.startsWith('https://') }),
+        clearPending,
+      ],
+    });
+    return res.end();
+  } catch (err) {
+    console.error('[auth/google]', err.message);
+    return htmlPage(res, 400, 'Connexion Google refusée', err.message || 'Erreur inconnue.', '<p><a href="/auth/login">Réessayer</a></p>');
+  }
+}
+
+function handleLogout(res) {
+  res.writeHead(302, {
+    Location: '/',
+    'Cache-Control': 'no-store',
+    'Set-Cookie': [serializeCookie(SESSION_COOKIE, '', { maxAge: 0 }), serializeCookie(OAUTH_COOKIE, '', { maxAge: 0 })],
+  });
+  res.end();
+}
+
 function sameSecret(a, b) {
   const ba = Buffer.from(String(a));
   const bb = Buffer.from(String(b));
@@ -76,6 +237,20 @@ function domainAllowed(user) {
 
 function checkAuth(req) {
   if (AUTH_MODE === 'none') return { ok: true, user: null };
+
+  if (AUTH_MODE === 'google') {
+    if (!googleReady()) {
+      return { ok: false, status: 503, message: 'SSO Google non configuré (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).' };
+    }
+    const session = googleSession(req);
+    if (!session) {
+      return { ok: false, status: 401, message: 'Connexion Google requise.', redirect: '/auth/login' };
+    }
+    if (!emailAllowed(session.email, '', AUTH_DOMAINS)) {
+      return { ok: false, status: 403, message: "Ce compte n'est pas autorisé à accéder à ce kanban." };
+    }
+    return { ok: true, user: session.email };
+  }
 
   if (AUTH_MODE === 'basic') {
     if (!BASIC_USERS.length) {
@@ -695,8 +870,19 @@ const server = http.createServer(async (req, res) => {
   // Sonde de sante : toujours accessible (utile pour le proxy / l'orchestrateur)
   if (url.pathname === '/healthz') return json(res, 200, { ok: true, mode: AUTH_MODE });
 
+  // Connexion Google : ces routes doivent rester accessibles sans session.
+  if (url.pathname === '/auth/logout') return handleLogout(res);
+  if (AUTH_MODE === 'google' && req.method === 'GET') {
+    if (url.pathname === '/auth/login') return handleGoogleLogin(req, res, url);
+    if (url.pathname === '/auth/callback') return handleGoogleCallback(req, res, url);
+  }
+
   const gate = checkAuth(req);
   if (!gate.ok) {
+    if (gate.redirect && !url.pathname.startsWith('/api/')) {
+      res.writeHead(302, { Location: gate.redirect, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
     const headers = gate.challenge ? { 'WWW-Authenticate': BASIC_REALM } : {};
     if (url.pathname.startsWith('/api/')) return fail(res, gate.status, gate.message, headers);
     res.writeHead(gate.status, { 'Content-Type': 'text/html; charset=utf-8', ...headers });
@@ -725,8 +911,16 @@ server.listen(PORT, HOST, () => {
   console.log('');
   console.log(`  Données : ${path.join(DATA_DIR, 'db.json')}`);
   console.log(`  Moteur  : ${llmInfo().enabled ? `IA (${llmInfo().model})` : 'extraction locale (heuristique)'}`);
-  console.log(
-    `  Accès   : ${AUTH_MODE === 'proxy' ? `SSO via en-tête ${AUTH_HEADER}${AUTH_DOMAINS.length ? ` (domaines : ${AUTH_DOMAINS.join(', ')})` : ''}` : 'libre (aucune authentification)'}`
-  );
+  let authLabel = 'libre (aucune authentification)';
+  if (AUTH_MODE === 'google') {
+    authLabel = googleReady()
+      ? `SSO Google${AUTH_DOMAINS.length ? ` (domaines : ${AUTH_DOMAINS.join(', ')})` : ' (tout compte Google)'}`
+      : 'SSO Google incomplet (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)';
+  } else if (AUTH_MODE === 'proxy') {
+    authLabel = `SSO via en-tête ${AUTH_HEADER}${AUTH_DOMAINS.length ? ` (domaines : ${AUTH_DOMAINS.join(', ')})` : ''}`;
+  } else if (AUTH_MODE === 'basic') {
+    authLabel = `HTTP Basic (${BASIC_USERS.length} compte${BASIC_USERS.length > 1 ? 's' : ''})`;
+  }
+  console.log(`  Accès   : ${authLabel}`);
   console.log('');
 });

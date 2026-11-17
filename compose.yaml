@@ -20,10 +20,15 @@ services:
       KANBAN_DATA_DIR: /data
       # Production : aucun jeu de démonstration au premier lancement.
       KANBAN_SEED: ${KANBAN_SEED:-empty}
-      # SSO : mets KANBAN_AUTH_MODE=proxy dans un fichier .env en production.
+      # SSO : KANBAN_AUTH_MODE=google (intégré) ou proxy, via un fichier .env en production.
       KANBAN_AUTH_MODE: ${KANBAN_AUTH_MODE:-none}
       KANBAN_AUTH_HEADER: ${KANBAN_AUTH_HEADER:-x-auth-request-email}
       KANBAN_AUTH_DOMAINS: ${KANBAN_AUTH_DOMAINS:-}
+      # SSO Google (KANBAN_AUTH_MODE=google) — voir README, section « Déploiement derrière un SSO ».
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      KANBAN_SESSION_SECRET: ${KANBAN_SESSION_SECRET:-}
+      KANBAN_PUBLIC_URL: ${KANBAN_PUBLIC_URL:-}
       # Optionnel : extraction par IA
       KANBAN_LLM_API_KEY: ${KANBAN_LLM_API_KEY:-}
       KANBAN_LLM_MODEL: ${KANBAN_LLM_MODEL:-}
