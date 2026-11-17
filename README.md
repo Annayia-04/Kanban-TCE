@@ -426,8 +426,10 @@ construire. C'est la voie la plus fiable (aucun build, donc aucune validation de
 Pour construire depuis le dépôt à la place (branche `main`/`dev`), Railway détecte le
 `Dockerfile` à la racine. Vérifie alors que **Settings → Source → Root Directory est vide** :
 un chemin erroné fait échouer le build en quelques secondes avec « Dockerfile failed
-validation ». Le dépôt ne contient volontairement pas de `railway.json` (le *config as code* est
-déprécié et écraserait les réglages du tableau de bord).
+validation ». Le `Dockerfile` ne déclare **pas** `VOLUME` : Railway refuse cette instruction
+(`docker VOLUME at Line … is not supported, use Railway Volumes`). Le volume se configure
+uniquement dans le tableau de bord, sur `/data`. Le dépôt ne contient volontairement pas de
+`railway.json` (le *config as code* est déprécié et écraserait les réglages du tableau de bord).
 
 Dans les deux cas, l'accès est protégé par le mode `basic` tant qu'il n'y a ni domaine ni SSO :
 le navigateur demande l'email et le mot de passe configurés dans `KANBAN_BASIC_USERS`. Ajoute un
