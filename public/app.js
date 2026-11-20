@@ -51,6 +51,32 @@ const STATUSES = [
 const STATUS_MAP = Object.fromEntries(STATUSES.map((s) => [s.id, s]));
 const PRIORITIES = { high: 'Haute', medium: 'Moyenne', low: 'Basse' };
 
+/* ---------------------------- Démonstration ---------------------------- */
+// /demo sert la même interface avec un jeu de données fictif, en lecture
+// seule. Aucune route d'écriture n'est appelée : la garde est double
+// (interface + API de démonstration).
+const DEMO = /^\/demo(?:\/|$)/.test(location.pathname);
+const DEMO_MESSAGE = 'Démonstration en lecture seule : connectez-vous pour agir sur le tableau.';
+const DEMO_READ_ACTIONS = new Set([
+  'nav',
+  'toggle-menu',
+  'toggle-theme',
+  'filter-version',
+  'clear-filters',
+  'open-story',
+  'goto-reports',
+  'engine-info',
+  'modal-close',
+  'close-drawer',
+  'open-report',
+  'diagnose',
+  'report-diagnose',
+  'review-back',
+  'toggle-cand',
+  'toggle-cand-assignee',
+  'drop-cand',
+]);
+
 const state = {
   data: null,
   view: 'board',
@@ -162,8 +188,11 @@ function toast(message, type = 'ok', ms = 3200) {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
-    method: options.method || 'GET',
+  const method = options.method || 'GET';
+  if (DEMO && method !== 'GET') throw new Error(DEMO_MESSAGE);
+  const endpoint = DEMO && path === '/state' ? '/api/demo/state' : `/api${path}`;
+  const res = await fetch(endpoint, {
+    method,
     headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
@@ -1873,6 +1902,11 @@ function bindGlobalEvents() {
     const act = el.dataset.act;
     const id = el.dataset.id;
 
+    if (DEMO && !DEMO_READ_ACTIONS.has(act)) {
+      toast(DEMO_MESSAGE, 'err', 4600);
+      return;
+    }
+
     switch (act) {
       case 'nav':
         $('#sidebar')?.classList.remove('open');
@@ -2079,6 +2113,12 @@ function bindGlobalEvents() {
 
   // Changements de champs
   document.addEventListener('change', async (e) => {
+    if (DEMO && e.target.closest('[data-act="qualify"], [data-act="row-status"]')) {
+      toast(DEMO_MESSAGE, 'err', 4600);
+      render();
+      return;
+    }
+
     const qualify = e.target.closest('[data-act="qualify"]');
     if (qualify) {
       const s = story(qualify.dataset.id);
@@ -2197,6 +2237,7 @@ function bindGlobalEvents() {
 
   // Drag & drop
   document.addEventListener('dragstart', (e) => {
+    if (DEMO) return;
     const card = e.target.closest('.card');
     if (!card) return;
     state.dragId = card.dataset.id;
@@ -2296,6 +2337,10 @@ function bindGlobalEvents() {
       $('#search-input')?.focus();
     } else if (e.key.toLowerCase() === 'n') {
       e.preventDefault();
+      if (DEMO) {
+        toast(DEMO_MESSAGE, 'err', 4600);
+        return;
+      }
       newStoryModal();
     } else if (e.key === '?') {
       e.preventDefault();
@@ -2315,10 +2360,25 @@ function bindGlobalEvents() {
 
 /* ---------------------------- Démarrage ---------------------------- */
 
+function setupDemo() {
+  document.body.classList.add('is-demo');
+  document.title = 'Démonstration — Flowboard';
+  const banner = document.getElementById('demo-banner');
+  if (!banner) return;
+  banner.hidden = false;
+  const link = banner.querySelector('a');
+  const note = banner.querySelector('.demo-note');
+  if (state.data?.meta?.auth?.mode === 'none') {
+    if (note) note.textContent = ' — données fictives, lecture seule.';
+    if (link) link.textContent = "Ouvrir l'application";
+  }
+}
+
 async function init() {
   bindGlobalEvents();
   try {
     await load();
+    if (DEMO) setupDemo();
     const hash = location.hash.replace('#', '');
     if (ROUTES.includes(hash)) state.view = hash;
     render();

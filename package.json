@@ -9,7 +9,7 @@
     "dev": "node server.js",
     "start:prod": "node scripts/start-instance.mjs prod",
     "start:staging": "node scripts/start-instance.mjs staging",
-    "test": "node scripts/test-formats.mjs && node scripts/test-extract.js && node scripts/test-parse.mjs && node scripts/test-vote.mjs && node scripts/test-suggest.mjs && node scripts/test-basic.mjs && node scripts/test-empty.mjs && node scripts/test-auth.mjs",
+    "test": "node scripts/test-formats.mjs && node scripts/test-extract.js && node scripts/test-parse.mjs && node scripts/test-vote.mjs && node scripts/test-suggest.mjs && node scripts/test-basic.mjs && node scripts/test-empty.mjs && node scripts/test-auth.mjs && node scripts/test-demo.mjs",
     "test:ui": "node scripts/ui-test.mjs"
   },
   "engines": {

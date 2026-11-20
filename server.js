@@ -322,6 +322,9 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
+// Ressources de l'interface : publiques, elles ne contiennent aucune donnee.
+const STATIC_ASSETS = new Set(['/app.js', '/styles.css', '/favicon.svg']);
+
 function json(res, status, payload, headers = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
@@ -853,6 +856,34 @@ async function serveStatic(req, res, url) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Demonstration publique (lecture seule)                              */
+/* ------------------------------------------------------------------ */
+// Donnees fictives issues du jeu de demo. Elles ne touchent jamais le
+// volume : aucune route d'ecriture n'est exposee dans cet espace.
+const DEMO_DATA = makeSeed();
+
+function demoState() {
+  return {
+    project: DEMO_DATA.project,
+    members: DEMO_DATA.members,
+    versions: DEMO_DATA.versions,
+    stories: DEMO_DATA.stories,
+    ideas: DEMO_DATA.ideas,
+    reports: DEMO_DATA.reports.map((report) => publicReport(report)),
+    meta: {
+      llm: llmInfo(),
+      statuses: STATUSES,
+      priorities: PRIORITIES,
+      auth: { mode: AUTH_MODE, user: null },
+      demo: true,
+      seed: 'demo',
+      readOnly: true,
+      demoMode: true,
+    },
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Serveur                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -877,6 +908,22 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/auth/callback') return handleGoogleCallback(req, res, url);
   }
 
+  // Demonstration publique : lecture seule, donnees fictives.
+  if (url.pathname === '/demo' || url.pathname === '/demo/') {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      return fail(res, 405, 'Démonstration en lecture seule.');
+    }
+    return serveStatic(req, res, new URL('/index.html', url));
+  }
+  if (url.pathname === '/api/demo/state') {
+    if (req.method !== 'GET') return fail(res, 405, 'Démonstration en lecture seule.');
+    return json(res, 200, demoState());
+  }
+  if (url.pathname.startsWith('/api/demo/')) {
+    return fail(res, 404, 'Ressource de démonstration inconnue.');
+  }
+  if (req.method === 'GET' && STATIC_ASSETS.has(url.pathname)) return serveStatic(req, res, url);
+
   const gate = checkAuth(req);
   if (!gate.ok) {
     if (gate.redirect && !url.pathname.startsWith('/api/')) {
@@ -887,7 +934,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) return fail(res, gate.status, gate.message, headers);
     res.writeHead(gate.status, { 'Content-Type': 'text/html; charset=utf-8', ...headers });
     return res.end(
-      `<!doctype html><meta charset="utf-8"><title>Accès refusé</title><body style="font-family:system-ui;padding:48px;max-width:560px;margin:auto"><h1>Accès refusé</h1><p>${gate.message}</p></body>`
+      `<!doctype html><meta charset="utf-8"><title>Accès refusé</title><body style="font-family:system-ui;padding:48px;max-width:560px;margin:auto"><h1>Accès refusé</h1><p>${gate.message}</p><p><a href="/demo">Voir la démonstration (lecture seule)</a></p></body>`
     );
   }
 
@@ -922,5 +969,6 @@ server.listen(PORT, HOST, () => {
     authLabel = `HTTP Basic (${BASIC_USERS.length} compte${BASIC_USERS.length > 1 ? 's' : ''})`;
   }
   console.log(`  Accès   : ${authLabel}`);
+  if (AUTH_MODE !== 'none') console.log('  Démo    : /demo (lecture seule, sans connexion)');
   console.log('');
 });

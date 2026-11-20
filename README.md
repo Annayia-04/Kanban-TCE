@@ -76,6 +76,8 @@ C'est le moyen le plus rapide de voir si le fichier a bien été lu (PDF scanné
 - Tout est stocké dans `data/db.json` (créé au premier lancement, avec une démo en local).
 - En production, `KANBAN_SEED=empty` démarre avec un projet vide (voir **Déployer l'image**).
 - **Export / Import** JSON depuis la barre latérale (sauvegarde, partage, versionnage).
+- **Démonstration publique** sur `/demo` : données fictives, lecture seule, accessible sans
+  connexion même quand le kanban réel est protégé par un SSO.
 - Le bouton `…` sur le projet permet de réinitialiser la démo (désactivé en production).
 
 ---
@@ -161,6 +163,42 @@ KANBAN_AUTH_DOMAINS=studio.fr KANBAN_SESSION_SECRET=dev-secret npm start
 KANBAN_AUTH_MODE=proxy KANBAN_AUTH_DOMAINS=studio.fr npm start
 # puis, via le proxy : x-auth-request-email: marie@studio.fr
 ```
+
+---
+
+## Démonstration publique (`/demo`)
+
+Utile pour montrer l'outil à des collègues ou à un client sans leur créer de compte :
+
+```
+https://<votre-domaine>/demo
+```
+
+- **Accessible sans connexion**, même en mode `basic`, `proxy` ou `google` — y compris quand le
+  SSO est mal configuré (`503` sur le reste du site).
+- **Lecture seule** : les boutons de création, modification, vote, import et suppression
+  affichent un message au lieu d'agir ; l'API de démonstration ne répond qu'en `GET`.
+- **Isolée des vraies données** : le jeu affiché est construit en mémoire depuis `lib/seed.js`
+  au démarrage. Le volume `/data` n'est jamais lu ni écrit, et les modifications faites sur le
+  kanban réel n'apparaissent pas dans la démo.
+- Un bandeau en haut de page rappelle le mode démonstration et propose un lien vers la
+  connexion.
+- Seules trois ressources statiques (`app.js`, `styles.css`, `favicon.svg`) sont publiques en
+  plus de `/demo` : elles ne contiennent aucune donnée.
+
+| Route | Accès |
+|---|---|
+| `GET /demo` | public |
+| `GET /api/demo/state` | public, données fictives |
+| `POST`/`PATCH`/`DELETE` sur `/api/demo/*` | `405` |
+| tout le reste | protégé par le mode d'authentification |
+
+La page `401`/`403` renvoie aussi vers la démonstration, pour qu'un visiteur non autorisé
+puisse voir l'outil sans accéder au kanban.
+
+> Derrière un proxy d'authentification ou Cloudflare Access, pense à laisser passer `/demo` et
+> `/api/demo/*` (règle de contournement) : sinon le visiteur est bloqué avant même d'atteindre
+> l'application, et la démonstration devient inutile.
 
 ---
 
@@ -656,6 +694,7 @@ render.yaml            Blueprint Render (prod + staging)
 | `POST`/`DELETE` | `/api/versions[/:id]` | Versions |
 | `GET` | `/api/export` · `POST /api/import` | Sauvegarde / restauration |
 | `POST` | `/api/reset` | Réinitialise la démo |
+| `GET` | `/api/demo/state` | Données fictives de la démonstration (public, lecture seule) |
 | `GET` | `/auth/login` · `/auth/callback` · `/auth/logout` | Connexion Google (mode `google` uniquement) |
 | `GET` | `/healthz` | Sonde de disponibilité (toujours publique) |
 
@@ -672,7 +711,7 @@ render.yaml            Blueprint Render (prod + staging)
 ## Tests
 
 ```bash
-npm test           # extraction (13 formats) + .docx/.pdf + API vote, suggestions, idées et droits + SSO Google
+npm test           # extraction (13 formats) + .docx/.pdf + API vote, suggestions, idées et droits + SSO Google + démo
 npm run test:ui    # parcours complet dans Chrome headless (serveur démarré à côté)
 ```
 

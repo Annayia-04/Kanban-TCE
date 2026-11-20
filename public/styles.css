@@ -95,6 +95,27 @@ h1, h2, h3, h4, p { margin: 0; }
 
 .app { display: flex; min-height: 100vh; }
 
+/* Bandeau de démonstration (route /demo, lecture seule) */
+.demo-banner {
+  position: fixed; inset: 0 0 auto 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  height: 32px; padding: 0 14px;
+  background: var(--accent); color: #fff;
+  font-size: 12.5px; letter-spacing: .01em;
+}
+.demo-banner[hidden] { display: none; }
+.demo-banner strong { font-weight: 650; }
+.demo-banner a { color: #fff; font-weight: 600; text-underline-offset: 2px; white-space: nowrap; }
+.demo-banner a:hover { color: #fff; opacity: .85; }
+body.is-demo { padding-top: 32px; }
+body.is-demo .app { min-height: calc(100vh - 32px); }
+body.is-demo .sidebar { top: 32px; height: calc(100vh - 32px); }
+body.is-demo .topbar { top: 32px; }
+@media (max-width: 640px) {
+  .demo-banner { gap: 8px; font-size: 11.5px; }
+  .demo-banner .demo-note strong { display: none; }
+}
+
 .sidebar {
   width: var(--sidebar-w);
   flex: 0 0 var(--sidebar-w);
