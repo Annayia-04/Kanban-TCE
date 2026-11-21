@@ -1223,3 +1223,113 @@ body.is-demo .topbar { top: 32px; }
   .idea-card { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .idea-card .vote-actions { justify-content: flex-start; }
 }
+
+/* ============================================================
+   Démonstration — direction artistique « witchy violet »
+   Portée limitée à body.is-demo : l'application réelle garde
+   son thème indigo d'origine.
+   ============================================================ */
+
+body.is-demo {
+  --bg: #f1e8fb;
+  --bg-soft: #e9dcf8;
+  --surface: #fdfbff;
+  --surface-2: #f8f2ff;
+  --column: #eadcf9;
+  --border: #dfcef4;
+  --border-strong: #d2beee;
+  --text: #241733;
+  --text-soft: #4b3a67;
+  --muted: #7d6a99;
+  --accent: #6d28d9;
+  --accent-soft: #f0e6ff;
+  --accent-text: #6b21a8;
+  --green: #0f9d76;
+  --green-soft: #e2f7ef;
+  --amber-soft: #fbf0dd;
+  --blue-soft: #ece7ff;
+  --red-soft: #fdeaea;
+  --shadow-md: 0 6px 18px -6px rgba(76, 29, 149, 0.18), 0 2px 6px rgba(76, 29, 149, 0.06);
+  --shadow-lg: 0 24px 60px -20px rgba(46, 16, 101, 0.38);
+
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(70% 55% at 12% 0%, rgba(124, 58, 237, 0.16), transparent 70%),
+    radial-gradient(60% 50% at 92% 4%, rgba(168, 85, 247, 0.18), transparent 72%),
+    radial-gradient(70% 60% at 50% 118%, rgba(76, 29, 149, 0.14), transparent 70%),
+    radial-gradient(1.6px 1.6px at 22% 26%, rgba(109, 40, 217, 0.34), transparent 60%),
+    radial-gradient(1.4px 1.4px at 68% 14%, rgba(109, 40, 217, 0.28), transparent 60%),
+    radial-gradient(1.4px 1.4px at 84% 42%, rgba(109, 40, 217, 0.22), transparent 60%),
+    radial-gradient(1.2px 1.2px at 38% 62%, rgba(109, 40, 217, 0.2), transparent 60%),
+    radial-gradient(1.2px 1.2px at 8% 78%, rgba(109, 40, 217, 0.18), transparent 60%);
+  background-attachment: fixed;
+}
+
+[data-theme="dark"] body.is-demo {
+  --bg: #100a1b;
+  --bg-soft: #17102a;
+  --surface: #1a1129;
+  --surface-2: #211634;
+  --column: #150e23;
+  --border: #2e2045;
+  --border-strong: #3d2b59;
+  --text: #f1e9ff;
+  --text-soft: #c6b6e0;
+  --muted: #9583b2;
+  --accent: #a78bfa;
+  --accent-soft: #2a1c45;
+  --accent-text: #c4b5fd;
+  --green: #34d399;
+  --green-soft: #12291f;
+  --amber-soft: #2b2214;
+  --blue-soft: #1d1a3f;
+  --red-soft: #2e1620;
+  --shadow-md: 0 6px 18px -6px rgba(0, 0, 0, 0.65);
+  --shadow-lg: 0 24px 60px -20px rgba(0, 0, 0, 0.8);
+
+  background-image:
+    radial-gradient(70% 55% at 12% 0%, rgba(124, 58, 237, 0.34), transparent 70%),
+    radial-gradient(60% 50% at 92% 4%, rgba(168, 85, 247, 0.3), transparent 72%),
+    radial-gradient(70% 60% at 50% 118%, rgba(76, 29, 149, 0.38), transparent 70%),
+    radial-gradient(1.6px 1.6px at 22% 26%, rgba(196, 181, 253, 0.55), transparent 60%),
+    radial-gradient(1.4px 1.4px at 68% 14%, rgba(196, 181, 253, 0.45), transparent 60%),
+    radial-gradient(1.4px 1.4px at 84% 42%, rgba(196, 181, 253, 0.35), transparent 60%),
+    radial-gradient(1.2px 1.2px at 38% 62%, rgba(196, 181, 253, 0.3), transparent 60%),
+    radial-gradient(1.2px 1.2px at 8% 78%, rgba(196, 181, 253, 0.26), transparent 60%);
+}
+
+body.is-demo .demo-banner {
+  background: linear-gradient(90deg, #2e1065, #5b21b6 42%, #7c3aed 72%, #a855f7);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.16), 0 8px 24px -16px rgba(46, 16, 101, 0.95);
+}
+body.is-demo .demo-note::before {
+  content: "☾";
+  margin-right: 8px;
+  font-size: 13px;
+  opacity: 0.92;
+}
+body.is-demo .brand-mark {
+  background: linear-gradient(140deg, #a855f7, #6d28d9 55%, #2e1065);
+  box-shadow: 0 4px 14px -4px rgba(109, 40, 217, 0.7);
+}
+body.is-demo .sidebar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 238, 252, 0.95));
+}
+[data-theme="dark"] body.is-demo .sidebar {
+  background: linear-gradient(180deg, rgba(26, 17, 41, 0.92), rgba(16, 11, 27, 0.97));
+}
+body.is-demo .btn-primary {
+  background: linear-gradient(180deg, #7c3aed, #6d28d9);
+  border-color: #5b21b6;
+  box-shadow: 0 2px 10px -2px rgba(109, 40, 217, 0.55);
+}
+body.is-demo .btn-primary:hover {
+  background: linear-gradient(180deg, #8b5cf6, #7c3aed);
+}
+body.is-demo .project-card {
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.92), rgba(240, 230, 255, 0.75));
+}
+[data-theme="dark"] body.is-demo .project-card {
+  background: linear-gradient(140deg, rgba(42, 28, 69, 0.9), rgba(26, 17, 41, 0.9));
+}
+body.is-demo ::selection { background: #7c3aed; color: #fff; }

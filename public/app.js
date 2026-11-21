@@ -2367,11 +2367,7 @@ function setupDemo() {
   if (!banner) return;
   banner.hidden = false;
   const link = banner.querySelector('a');
-  const note = banner.querySelector('.demo-note');
-  if (state.data?.meta?.auth?.mode === 'none') {
-    if (note) note.textContent = ' — données fictives, lecture seule.';
-    if (link) link.textContent = "Ouvrir l'application";
-  }
+  if (state.data?.meta?.auth?.mode === 'none' && link) link.textContent = "Ouvrir l'application";
 }
 
 async function init() {
