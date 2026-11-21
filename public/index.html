@@ -7,6 +7,16 @@
     <meta name="description" content="Kanban d'équipe : importez vos comptes rendus de réunion, l'outil en sort des user stories assignées." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
+    <script>
+      // Applique le thème avant le premier rendu (évite un flash clair sur /demo,
+      // qui est sombre par défaut). Même clé que app.js.
+      (function () {
+        var demo = /^\/demo(?:\/|$)/.test(location.pathname);
+        var key = demo ? 'fb-theme-demo' : 'fb-theme';
+        var theme = localStorage.getItem(key) || (demo ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <div class="demo-banner" id="demo-banner" hidden>

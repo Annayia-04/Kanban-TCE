@@ -56,6 +56,9 @@ const PRIORITIES = { high: 'Haute', medium: 'Moyenne', low: 'Basse' };
 // seule. Aucune route d'écriture n'est appelée : la garde est double
 // (interface + API de démonstration).
 const DEMO = /^\/demo(?:\/|$)/.test(location.pathname);
+// La démo a sa propre préférence de thème : sombre par défaut, sans hériter
+// du choix fait dans l'application réelle.
+const THEME_KEY = DEMO ? 'fb-theme-demo' : 'fb-theme';
 const DEMO_MESSAGE = 'Démonstration en lecture seule : connectez-vous pour agir sur le tableau.';
 const DEMO_READ_ACTIONS = new Set([
   'nav',
@@ -83,7 +86,7 @@ const state = {
   q: '',
   fVersion: 'all',
   fAssignee: 'all',
-  theme: localStorage.getItem('fb-theme') || 'light',
+  theme: localStorage.getItem(THEME_KEY) || (DEMO ? 'dark' : 'light'),
   pending: null,
   openStoryId: null,
   dragId: null,
@@ -1917,7 +1920,7 @@ function bindGlobalEvents() {
         break;
       case 'toggle-theme':
         state.theme = state.theme === 'dark' ? 'light' : 'dark';
-        localStorage.setItem('fb-theme', state.theme);
+        localStorage.setItem(THEME_KEY, state.theme);
         document.documentElement.dataset.theme = state.theme;
         renderSidebar();
         break;
